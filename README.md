@@ -29,10 +29,15 @@ Les mises à jour arrivent dans **Extensions** comme pour un plugin du répertoi
 
 ## 2. Installer sur un site client
 
-1. Télécharge `midiconcept-core.zip` depuis la release, puis *Extensions → Ajouter → Téléverser*.
-2. Copie `examples/mc-site-config.php` dans `wp-content/mu-plugins/` et adapte-le au client.
+Aucun accès FTP. Tout se fait dans l’admin WordPress :
 
-La config propre au site reste ainsi en dehors du plugin : une mise à jour ne l'écrase jamais.
+1. Télécharge `midiconcept-core.zip` depuis la release.
+2. *Extensions → Ajouter → Téléverser une extension*, puis active.
+3. *Réglages → MidiConcept* : nom, logo, couleurs, raccourcis, menus masqués.
+
+Les réglages sont en base : une mise à jour de l’extension ne les écrase pas.
+
+Si WordPress affiche un formulaire « Identifiants FTP » au moment du téléversement, l’hébergeur interdit à PHP d’écrire dans `wp-content`. Ce n’est pas le plugin. Le gestionnaire de fichiers de l’hébergeur (ou un accès SSH) débloque ça ; le FTP n’est pas le mode normal.
 
 ## 3. Dépôt privé : token par site
 
@@ -64,7 +69,9 @@ Les sites la voient lors de leur prochaine vérification (environ toutes les 12 
 
 ## 5. Configurer un site
 
-Toute la config passe par le hook `midiconcept_core_init`, déclenché sur `init` :
+Le cas courant : *Réglages → MidiConcept*.
+
+Pour les colonnes d’admin, ou une config que l’écran ne couvre pas, un mu-plugin (ou le `functions.php` du thème) prend le pas sur la page de réglages :
 
 ```php
 add_action('midiconcept_core_init', function () {
@@ -73,7 +80,7 @@ add_action('midiconcept_core_init', function () {
 });
 ```
 
-Toutes les options sont documentées en tête de chaque fichier dans `includes/`.
+Le modèle est dans `examples/mc-site-config.php`. Les options sont documentées en tête de chaque fichier dans `includes/`. Ce fichier demande un accès au disque : il n’est pas nécessaire pour installer et régler l’admin client.
 
 ## Structure
 
@@ -82,9 +89,10 @@ midiconcept-core/
 ├── midiconcept-core.php          plugin principal + mises à jour
 ├── includes/
 │   ├── class-mc-admin-columns.php
-│   └── class-mc-client-admin.php
+│   ├── class-mc-client-admin.php
+│   └── class-mc-settings.php      page Réglages → MidiConcept
 ├── lib/plugin-update-checker/    bibliothèque embarquée (ne pas modifier)
-├── examples/mc-site-config.php   modèle de config à copier dans mu-plugins/
+├── examples/mc-site-config.php   modèle facultatif (colonnes, options avancées)
 ├── bin/release.sh                script de publication
 └── .github/workflows/release.yml build + release automatiques
 ```

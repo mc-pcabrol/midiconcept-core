@@ -3,7 +3,7 @@
  * Plugin Name:       MidiConcept Core
  * Plugin URI:        https://www.midiconcept.fr
  * Description:       Boîte à outils MidiConcept pour les sites clients : admin client modernisé, colonnes d'admin personnalisées. Mises à jour depuis GitHub.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Midiconcept
@@ -14,7 +14,7 @@
 
 defined('ABSPATH') || exit;
 
-define('MC_CORE_VERSION', '1.0.0');
+define('MC_CORE_VERSION', '1.1.0');
 define('MC_CORE_FILE', __FILE__);
 define('MC_CORE_DIR', plugin_dir_path(__FILE__));
 
@@ -34,11 +34,15 @@ if (!defined('MC_CORE_REPO')) {
 
 require_once MC_CORE_DIR . 'includes/class-mc-admin-columns.php';
 require_once MC_CORE_DIR . 'includes/class-mc-client-admin.php';
+require_once MC_CORE_DIR . 'includes/class-mc-settings.php';
+
+MC_Settings::boot();
+add_action('admin_enqueue_scripts', ['MC_Settings', 'assets']);
 
 /*
- * Point d'entrée de la configuration propre à chaque site.
- * Déclenché sur "init" (priorité 1) : utilisable depuis un mu-plugin
- * comme depuis le functions.php du thème enfant.
+ * Configuration du site.
+ * 1. La page Réglages → MidiConcept (aucun fichier à déposer).
+ * 2. Un mu-plugin ou le thème peut prendre le pas, pour les colonnes notamment :
  *
  * add_action('midiconcept_core_init', function () {
  *     MC_Client_Admin::init([...]);
@@ -47,6 +51,16 @@ require_once MC_CORE_DIR . 'includes/class-mc-client-admin.php';
  */
 add_action('init', static function () {
     do_action('midiconcept_core_init');
+
+    if (MC_Client_Admin::is_ready()) {
+        MC_Settings::$from_code = true;
+        return;
+    }
+
+    $config = MC_Settings::client_config();
+    if ($config !== null) {
+        MC_Client_Admin::init($config);
+    }
 }, 1);
 
 /* ─────────────────────────────── Mises à jour ────────────────────────────── */

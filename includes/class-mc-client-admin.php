@@ -3,7 +3,9 @@
  * MidiConcept Core – Client Admin
  * Description: Admin WordPress simplifié et modernisé pour les clients : thème visuel, tableau de bord à raccourcis, menu épuré, branding.
  *
- * Chargé par le plugin MidiConcept Core. Configurer dans le hook "midiconcept_core_init".
+ * Chargé par le plugin MidiConcept Core.
+ * Réglages habituels : Réglages → MidiConcept, dans l'admin (aucun fichier à déposer).
+ * Réglages avancés : hook "midiconcept_core_init", qui prend le pas sur la page de réglages.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * UTILISATION (un seul appel par site, ex. dans mu-plugins/mc-site-config.php)
@@ -64,10 +66,18 @@ final class MC_Client_Admin
 {
     private static array $cfg = [];
 
+    private static bool $ready = false;
+
     /* ───────────────────────────── Initialisation ─────────────────────────── */
+
+    public static function is_ready(): bool
+    {
+        return self::$ready;
+    }
 
     public static function init(array $config): void
     {
+        self::$ready = true;
         self::$cfg = self::merge(self::defaults(), $config);
 
         // Branding (tout le monde).
@@ -260,8 +270,9 @@ final class MC_Client_Admin
             if (!empty($s['cap']) && !current_user_can($s['cap'])) {
                 continue;
             }
-            $url    = preg_match('#^https?://#', $s['url']) ? $s['url'] : admin_url($s['url']);
-            $target = !empty($s['target']) ? ' target="' . esc_attr($s['target']) . '" rel="noopener"' : '';
+            $url    = self::shortcut_url((string) ($s['url'] ?? ''));
+            $blank  = preg_match('#^https?://#', (string) ($s['url'] ?? '')) || (isset($s['url'][0]) && $s['url'][0] === '/');
+            $target = (!empty($s['target']) || $blank) ? ' target="_blank" rel="noopener"' : '';
             $icon   = !empty($s['icon']) ? '<span class="dashicons ' . esc_attr($s['icon']) . '" aria-hidden="true"></span>' : '';
 
             $items .= sprintf(
@@ -321,7 +332,7 @@ final class MC_Client_Admin
             wp_enqueue_style('mc-admin-font', esc_url_raw($font_css), [], null);
         }
 
-        wp_register_style('mc-admin', false, [], '1.0.0');
+        wp_register_style('mc-admin', false, [], MC_CORE_VERSION);
         wp_enqueue_style('mc-admin');
         wp_add_inline_style('mc-admin', self::css_vars() . self::admin_css());
     }
@@ -342,7 +353,7 @@ final class MC_Client_Admin
             );
         }
 
-        wp_register_style('mc-login', false, [], '1.0.0');
+        wp_register_style('mc-login', false, [], MC_CORE_VERSION);
         wp_enqueue_style('mc-login');
         wp_add_inline_style('mc-login', $css);
     }
@@ -495,6 +506,18 @@ body.login{background:var(--mc-bg);font-family:var(--mc-font);color:var(--mc-tex
 .login .message,.login .notice,.login .success{border-radius:calc(var(--mc-radius) - 2px);border-left-color:var(--mc-primary);}
 .login .language-switcher{display:none;}
 CSS;
+    }
+
+    /** Adresse admin, chemin du site (/contact/) ou URL absolue. */
+    private static function shortcut_url(string $url): string
+    {
+        if (preg_match('#^https?://#i', $url)) {
+            return $url;
+        }
+        if (isset($url[0]) && $url[0] === '/') {
+            return home_url($url);
+        }
+        return admin_url($url);
     }
 
     /* ─────────────────────────────── Couleurs ─────────────────────────────── */

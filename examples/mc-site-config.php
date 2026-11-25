@@ -3,8 +3,10 @@
  * Plugin Name: Config site – MidiConcept Core
  * Description: Configuration propre à ce site (admin client, colonnes). Nécessite le plugin MidiConcept Core.
  *
- * À copier dans wp-content/mu-plugins/ et à adapter pour chaque client.
- * (Variante : coller le add_action() dans le functions.php du thème enfant.)
+ * Facultatif. La page Réglages → MidiConcept suffit pour l'admin client, sans déposer de fichier.
+ * Ce modèle sert aux colonnes d'admin et aux options absentes de l'écran de réglages.
+ * Le déposer dans wp-content/mu-plugins/ (ou coller le add_action dans le functions.php du thème)
+ * remplace alors la page de réglages pour l'admin client.
  */
 
 defined('ABSPATH') || exit;
