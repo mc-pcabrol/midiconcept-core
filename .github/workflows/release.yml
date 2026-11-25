@@ -1,0 +1,42 @@
+# Publie une release quand on pousse un tag vX.Y.Z.
+# Les sites clients voient alors la mise à jour dans Extensions.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vérifier que le tag correspond à la version du plugin
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          HEADER=$(grep -m1 -E '^\s*\*\s*Version:' midiconcept-core.php | awk '{print $NF}')
+          CONST=$(grep -m1 "MC_CORE_VERSION'" midiconcept-core.php | sed -E "s/.*'([0-9.]+)'.*/\1/")
+          echo "Tag: $TAG · En-tête: $HEADER · Constante: $CONST"
+          if [ "$TAG" != "$HEADER" ] || [ "$TAG" != "$CONST" ]; then
+            echo "::error::La version du plugin ne correspond pas au tag. Lance bin/release.sh plutôt que de taguer à la main."
+            exit 1
+          fi
+
+      - name: Vérifier la syntaxe PHP
+        run: find . -name '*.php' -not -path './lib/*' -print0 | xargs -0 -n1 php -l
+
+      - name: Construire le zip
+        run: |
+          mkdir -p build/midiconcept-core
+          rsync -a --exclude-from=.distignore ./ build/midiconcept-core/
+          cd build && zip -rq ../midiconcept-core.zip midiconcept-core
+
+      - name: Publier la release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: midiconcept-core.zip
+          generate_release_notes: true

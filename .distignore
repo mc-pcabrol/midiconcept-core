@@ -1,0 +1,17 @@
+.git
+.github
+.gitignore
+.gitattributes
+.distignore
+.vscode
+.idea
+.cursor
+bin
+build
+examples
+node_modules
+*.zip
+*.log
+.DS_Store
+Thumbs.db
+README.md
