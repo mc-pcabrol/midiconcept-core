@@ -13,14 +13,14 @@ Les mises à jour arrivent dans **Extensions** comme pour un plugin du répertoi
 
 ## 1. Mise en place (une seule fois)
 
-1. Crée le dépôt sur GitHub, par exemple `midiconcept/midiconcept-core`.
-   - **Public** : rien d'autre à faire, c'est le plus simple.
-   - **Privé** : crée un token *fine-grained* en lecture seule sur ce dépôt (Contents: Read-only) et ajoute-le dans le `wp-config.php` de chaque site (voir §3).
-2. Si le compte n'est pas `midiconcept`, modifie `MC_CORE_REPO` et `Update URI` dans `midiconcept-core.php`.
+1. Le dépôt public est [mc-pcabrol/midiconcept-core](https://github.com/mc-pcabrol/midiconcept-core).
+   - **Public** (cas actuel) : aucun token sur les sites clients.
+   - **Privé** : GitHub refuse la lecture anonyme. Il faut alors un token en lecture seule (Contents: Read-only), soit dans le `wp-config.php` de chaque site (voir §3), soit derrière un serveur de mises à jour à vous.
+2. Si le dépôt change de compte, modifie `MC_CORE_REPO` et `Update URI` dans `midiconcept-core.php`.
 3. Pousse le code :
 
    ```bash
-   git remote add origin git@github.com:midiconcept/midiconcept-core.git
+   git remote add origin git@github.com:mc-pcabrol/midiconcept-core.git
    git push -u origin main
    git push origin v1.0.0
    ```

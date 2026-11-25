@@ -9,7 +9,7 @@
  * Author:            Midiconcept
  * Author URI:        https://www.midiconcept.fr
  * Text Domain:       midiconcept-core
- * Update URI:        https://github.com/midiconcept/midiconcept-core
+ * Update URI:        https://github.com/mc-pcabrol/midiconcept-core
  */
 
 defined('ABSPATH') || exit;
@@ -23,11 +23,11 @@ define('MC_CORE_DIR', plugin_dir_path(__FILE__));
  * Dépôt GitHub des mises à jour
  * ─────────────────────────────────────────────────────────────────────────────
  * Surcharge possible dans wp-config.php :
- *   define('MC_CORE_REPO', 'https://github.com/mon-compte/midiconcept-core/');
+ *   define('MC_CORE_REPO', 'https://github.com/mc-pcabrol/midiconcept-core/');
  *   define('MC_CORE_GITHUB_TOKEN', 'github_pat_…');   // uniquement si le dépôt est privé
  */
 if (!defined('MC_CORE_REPO')) {
-    define('MC_CORE_REPO', 'https://github.com/midiconcept/midiconcept-core/');
+    define('MC_CORE_REPO', 'https://github.com/mc-pcabrol/midiconcept-core/');
 }
 
 /* ─────────────────────────────── Modules ─────────────────────────────────── */
