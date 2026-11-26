@@ -690,16 +690,19 @@ body.mc-admin:not(.block-editor-page) .subsubsub li a:hover{color:var(--mc-text)
 body.mc-admin:not(.block-editor-page) .subsubsub li a.current{color:var(--mc-primary);background:var(--mc-primary-soft);font-weight:600;}
 body.mc-admin:not(.block-editor-page) .subsubsub li a .count{color:inherit;opacity:.7;font-weight:400;}
 
-/* Modification rapide : bande teintée, champs dans des cartes blanches */
+/* Modification rapide : un bandeau gris neutre, champs blancs, pas de cartes */
 body.mc-admin:not(.block-editor-page) .inline-edit-row,
-body.mc-admin:not(.block-editor-page) .inline-edit-row td{background:var(--mc-primary-soft);}
-body.mc-admin:not(.block-editor-page) .inline-edit-row td.colspanchange{box-shadow:inset 4px 0 0 var(--mc-primary);padding-top:18px;padding-bottom:16px;}
-body.mc-admin:not(.block-editor-page) .inline-edit-row .inline-edit-legend{color:var(--mc-primary);font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;}
+body.mc-admin:not(.block-editor-page) .inline-edit-row td{background:#F3F4F6;}
+body.mc-admin:not(.block-editor-page) .inline-edit-row td.colspanchange{box-shadow:inset 0 1px 0 #E5E7EB, inset 0 -1px 0 #E5E7EB;padding-top:18px;padding-bottom:16px;}
 body.mc-admin:not(.block-editor-page) .inline-edit-row fieldset.inline-edit-col-left,
 body.mc-admin:not(.block-editor-page) .inline-edit-row fieldset.inline-edit-col-center,
-body.mc-admin:not(.block-editor-page) .inline-edit-row fieldset.inline-edit-col-right{background:#fff;border:1px solid var(--mc-border);border-radius:var(--mc-radius);padding:14px 16px 10px;box-shadow:var(--mc-shadow);}
-body.mc-admin:not(.block-editor-page) .inline-edit-row fieldset .inline-edit-categories,
-body.mc-admin:not(.block-editor-page) .inline-edit-row .cat-checklist{border-radius:calc(var(--mc-radius) - 4px);border-color:var(--mc-border);background:#fff;}
+body.mc-admin:not(.block-editor-page) .inline-edit-row fieldset.inline-edit-col-right{background:transparent;border:0;border-radius:0;box-shadow:none;}
+body.mc-admin:not(.block-editor-page) .inline-edit-row .inline-edit-legend{color:#6B7280;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px;}
+body.mc-admin:not(.block-editor-page) .inline-edit-row label .title,
+body.mc-admin:not(.block-editor-page) .inline-edit-row .inline-edit-categories-label{color:#6B7280;font-weight:500;}
+body.mc-admin:not(.block-editor-page) .inline-edit-row input[type=text],
+body.mc-admin:not(.block-editor-page) .inline-edit-row select{background:#fff;border-color:#D1D5DB;}
+body.mc-admin:not(.block-editor-page) .inline-edit-row .cat-checklist{background:#fff;border:1px solid #E5E7EB;border-radius:8px;}
 
 /* Tableau des extensions : remplace le bleu WordPress des lignes actives */
 body.mc-admin:not(.block-editor-page) .plugins .active th,
