@@ -402,7 +402,7 @@ final class MC_Client_Admin
 
             // Modification rapide (même classe que le bouton natif : le JS de WordPress s'en charge)
             if (!wp_check_post_lock($post_id)) {
-                $out .= $btn('dashicons-admin-settings', 'Modification rapide', sprintf(
+                $out .= $btn('dashicons-forms', 'Modification rapide', sprintf(
                     '<button type="button" class="mc-act button-link editinline" aria-expanded="false" title="%s">',
                     esc_attr('Modification rapide de « ' . $title . ' »')
                 ), '</button>');
@@ -690,12 +690,37 @@ body.mc-admin:not(.block-editor-page) .subsubsub li a:hover{color:var(--mc-text)
 body.mc-admin:not(.block-editor-page) .subsubsub li a.current{color:var(--mc-primary);background:var(--mc-primary-soft);font-weight:600;}
 body.mc-admin:not(.block-editor-page) .subsubsub li a .count{color:inherit;opacity:.7;font-weight:400;}
 
-/* Modification rapide */
+/* Modification rapide : bande teintée, champs dans des cartes blanches */
 body.mc-admin:not(.block-editor-page) .inline-edit-row,
-body.mc-admin:not(.block-editor-page) .inline-edit-row td{background:var(--mc-surface);}
-body.mc-admin:not(.block-editor-page) .inline-edit-row td.colspanchange{box-shadow:inset 3px 0 0 var(--mc-primary);}
+body.mc-admin:not(.block-editor-page) .inline-edit-row td{background:var(--mc-primary-soft);}
+body.mc-admin:not(.block-editor-page) .inline-edit-row td.colspanchange{box-shadow:inset 4px 0 0 var(--mc-primary);padding-top:18px;padding-bottom:16px;}
+body.mc-admin:not(.block-editor-page) .inline-edit-row .inline-edit-legend{color:var(--mc-primary);font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;}
+body.mc-admin:not(.block-editor-page) .inline-edit-row fieldset.inline-edit-col-left,
+body.mc-admin:not(.block-editor-page) .inline-edit-row fieldset.inline-edit-col-center,
+body.mc-admin:not(.block-editor-page) .inline-edit-row fieldset.inline-edit-col-right{background:#fff;border:1px solid var(--mc-border);border-radius:var(--mc-radius);padding:14px 16px 10px;box-shadow:var(--mc-shadow);}
 body.mc-admin:not(.block-editor-page) .inline-edit-row fieldset .inline-edit-categories,
-body.mc-admin:not(.block-editor-page) .inline-edit-row .cat-checklist{border-radius:calc(var(--mc-radius) - 4px);border-color:var(--mc-border);}
+body.mc-admin:not(.block-editor-page) .inline-edit-row .cat-checklist{border-radius:calc(var(--mc-radius) - 4px);border-color:var(--mc-border);background:#fff;}
+
+/* Tableau des extensions : remplace le bleu WordPress des lignes actives */
+body.mc-admin:not(.block-editor-page) .plugins .active th,
+body.mc-admin:not(.block-editor-page) .plugins .active td,
+body.mc-admin:not(.block-editor-page) .plugins tr.active + tr.plugin-update-tr td,
+body.mc-admin:not(.block-editor-page) .plugins tr.active + tr.plugin-update-tr .plugin-update,
+body.mc-admin:not(.block-editor-page) .plugin-update-tr.active td{background-color:var(--mc-primary-soft);border-left-color:var(--mc-primary);}
+body.mc-admin:not(.block-editor-page) .plugins .active th.check-column,
+body.mc-admin:not(.block-editor-page) .plugins tr.active + tr.plugin-update-tr .plugin-update{border-left:4px solid var(--mc-primary);}
+body.mc-admin:not(.block-editor-page) .plugins .inactive th,
+body.mc-admin:not(.block-editor-page) .plugins .inactive td,
+body.mc-admin:not(.block-editor-page) .plugins tr.inactive + tr.plugin-update-tr td{background-color:var(--mc-surface);}
+body.mc-admin:not(.block-editor-page) .plugins .plugin-title,
+body.mc-admin:not(.block-editor-page) .plugins .plugin-title strong,
+body.mc-admin:not(.block-editor-page) .plugins .column-description,
+body.mc-admin:not(.block-editor-page) .plugins .column-description a,
+body.mc-admin:not(.block-editor-page) .plugins .row-actions a{color:var(--mc-text);}
+body.mc-admin:not(.block-editor-page) .plugins .plugin-title a:hover,
+body.mc-admin:not(.block-editor-page) .plugins .column-description a:hover,
+body.mc-admin:not(.block-editor-page) .plugins .row-actions a:hover{color:var(--mc-primary);}
+body.mc-admin:not(.block-editor-page) .plugins .row-actions .delete a{color:#B42318;}
 
 /* ── Colonne Actions à icônes ─────────────────────────── */
 body.mc-admin .wp-list-table .column-mc_actions{width:150px;text-align:right;}
