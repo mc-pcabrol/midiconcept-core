@@ -24,6 +24,8 @@
  *         'radius'    => '10px',
  *         'font'      => '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
  *         'font_css'  => '',          // URL d'une feuille @font-face locale (pas de Google Fonts → RGPD)
+ *         'menu_width' => '240px',    // largeur du menu latéral (écrans > 960 px)
+ *         'adminbar'  => 'dark',      // 'dark' ou 'light' (barre du haut blanche)
  *     ],
  *
  *     'brand' => [
@@ -52,6 +54,8 @@
  *
  *     'adminbar_remove' => ['wp-logo', 'comments', 'new-content', 'updates'],
  *     'hide_notices'    => true,   // masque les notices de plugins pour les rôles concernés
+ *     'status_badges'   => true,   // pastilles Publié / Brouillon / Programmé dans les listes
+ *     'row_icons'       => true,   // colonne « Actions » à icônes (voir, modifier, modif. rapide, corbeille)
  * ]);
  *
  * Rappel : masquer un menu ne bloque pas l'accès à l'URL. Pour verrouiller,
@@ -105,6 +109,8 @@ final class MC_Client_Admin
                 'radius'    => '10px',
                 'font'      => '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
                 'font_css'  => '',
+                'menu_width' => '240px',
+                'adminbar'  => 'dark',
             ],
             'brand' => [
                 'name'   => '',
@@ -125,6 +131,8 @@ final class MC_Client_Admin
             ],
             'adminbar_remove' => ['wp-logo', 'comments'],
             'hide_notices'    => false,
+            'status_badges'   => true,
+            'row_icons'       => true,
         ];
     }
 
@@ -167,8 +175,32 @@ final class MC_Client_Admin
         }
 
         if (self::$cfg['theme']['enabled']) {
-            add_filter('admin_body_class', static fn($c) => $c . ' mc-admin ');
+            add_filter('admin_body_class', static function ($c) {
+                $c .= ' mc-admin ';
+                if (self::$cfg['theme']['adminbar'] === 'light') {
+                    $c .= ' mc-adminbar-light ';
+                }
+                return $c;
+            });
             add_action('admin_enqueue_scripts', [__CLASS__, 'admin_styles']);
+            add_action('admin_footer', [__CLASS__, 'search_placeholder']);
+        }
+
+        if (self::$cfg['row_icons']) {
+            $add = static function (array $cols): array {
+                $cols['mc_actions'] = 'Actions';
+                return $cols;
+            };
+            add_filter('manage_posts_columns', $add, 999);
+            add_filter('manage_pages_columns', $add, 999);
+            add_action('manage_posts_custom_column', [__CLASS__, 'actions_cell'], 10, 2);
+            add_action('manage_pages_custom_column', [__CLASS__, 'actions_cell'], 10, 2);
+            add_filter('admin_body_class', static fn($c) => $c . ' mc-row-icons ');
+        }
+
+        if (self::$cfg['status_badges']) {
+            add_filter('post_date_column_status', [__CLASS__, 'status_badge'], 10, 2);
+            add_filter('display_post_states', [__CLASS__, 'post_states'], 10, 2);
         }
 
         if (self::$cfg['dashboard']['enabled']) {
@@ -293,6 +325,122 @@ final class MC_Client_Admin
         }
     }
 
+    /* ─────────────────────────────── Listes ───────────────────────────────── */
+
+    /** Colonne Date : le statut devient une pastille colorée. */
+    public static function status_badge($status, $post): string
+    {
+        if (!$post instanceof WP_Post || $status === '') {
+            return (string) $status;
+        }
+
+        $map = [
+            'publish' => ['Publié', 'publish'],
+            'future'  => ['Programmé', 'future'],
+            'draft'   => ['Brouillon', 'draft'],
+            'pending' => ['En attente', 'pending'],
+            'private' => ['Privé', 'private'],
+        ];
+        [$label, $mod] = $map[$post->post_status] ?? [wp_strip_all_tags((string) $status), 'other'];
+
+        return sprintf(
+            '<span class="mc-badge mc-badge--%s" title="%s">%s</span>',
+            esc_attr($mod),
+            esc_attr(wp_strip_all_tags((string) $status)),
+            esc_html($label)
+        );
+    }
+
+    /**
+     * Colonne « Actions » : icônes grisées. Les actions natives équivalentes sont masquées
+     * sous le titre (CSS) ; celles ajoutées par d'autres plugins y restent.
+     * Dans la corbeille, on laisse les actions natives (Restaurer / Supprimer définitivement).
+     */
+    public static function actions_cell(string $column, int $post_id): void
+    {
+        if ($column !== 'mc_actions') {
+            return;
+        }
+
+        $post = get_post($post_id);
+        if (!$post || $post->post_status === 'trash') {
+            return;
+        }
+
+        $type  = get_post_type_object($post->post_type);
+        $title = _draft_or_post_title($post);
+        $btn   = static function (string $icon, string $label, string $html_open, string $html_close = '</a>'): string {
+            return $html_open
+                . '<span class="dashicons ' . esc_attr($icon) . '" aria-hidden="true"></span>'
+                . '<span class="screen-reader-text">' . esc_html($label) . '</span>'
+                . $html_close;
+        };
+
+        $out = '';
+
+        // Voir / Prévisualiser
+        if ($type && $type->public && is_post_type_viewable($type)) {
+            $published = in_array($post->post_status, ['publish', 'private'], true);
+            $url       = $published ? get_permalink($post) : get_preview_post_link($post);
+            if ($url && ($published || current_user_can('edit_post', $post_id))) {
+                $label = $published ? 'Voir' : 'Prévisualiser';
+                $out  .= $btn('dashicons-visibility', $label, sprintf(
+                    '<a class="mc-act" href="%s" target="_blank" rel="noopener" title="%s">',
+                    esc_url($url),
+                    esc_attr($label . ' « ' . $title . ' »')
+                ));
+            }
+        }
+
+        if (current_user_can('edit_post', $post_id)) {
+            // Modifier
+            $out .= $btn('dashicons-edit', 'Modifier', sprintf(
+                '<a class="mc-act" href="%s" title="%s">',
+                esc_url(get_edit_post_link($post_id)),
+                esc_attr('Modifier « ' . $title . ' »')
+            ));
+
+            // Modification rapide (même classe que le bouton natif : le JS de WordPress s'en charge)
+            if (!wp_check_post_lock($post_id)) {
+                $out .= $btn('dashicons-admin-settings', 'Modification rapide', sprintf(
+                    '<button type="button" class="mc-act button-link editinline" aria-expanded="false" title="%s">',
+                    esc_attr('Modification rapide de « ' . $title . ' »')
+                ), '</button>');
+            }
+        }
+
+        // Corbeille
+        if (current_user_can('delete_post', $post_id) && EMPTY_TRASH_DAYS) {
+            $out .= $btn('dashicons-trash', 'Mettre à la corbeille', sprintf(
+                '<a class="mc-act mc-act--danger submitdelete" href="%s" title="%s">',
+                esc_url(get_delete_post_link($post_id)),
+                esc_attr('Mettre « ' . $title . ' » à la corbeille')
+            ));
+        }
+
+        echo '<div class="mc-actions">' . $out . '</div>'; // phpcs:ignore -- échappé ci-dessus
+    }
+
+    /** Après le titre : on retire les statuts déjà affichés en pastille (« — Brouillon »…). */
+    public static function post_states(array $states, $post): array
+    {
+        if (!function_exists('get_current_screen')) {
+            return $states;
+        }
+        $screen = get_current_screen();
+        if (!$screen || $screen->base !== 'edit') {
+            return $states;
+        }
+        unset($states['draft'], $states['pending'], $states['scheduled'], $states['private'], $states['protected']);
+        return $states;
+    }
+
+    /** Ajoute un texte d'exemple aux champs de recherche des listes (« Rechercher une formation… »). */
+    public static function search_placeholder(): void
+    {
+        echo "<script>document.querySelectorAll('.search-box input[type=search]').forEach(function(i){if(!i.placeholder){var b=i.parentNode.querySelector('input[type=submit]');if(b){i.placeholder=b.value+'…';}}});</script>";
+    }
+
     /* ─────────────────────────────── Styles ───────────────────────────────── */
 
     private static function css_vars(): string
@@ -316,6 +464,7 @@ final class MC_Client_Admin
             '--mc-radius'        => preg_replace('/[^0-9a-z.%]/i', '', (string) $t['radius']) ?: '10px',
             '--mc-shadow'        => '0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.06)',
             '--mc-font'          => str_replace(['<', '>', '{', '}', ';'], '', (string) $t['font']),
+            '--mc-menu-w'        => preg_replace('/[^0-9a-z.%]/i', '', (string) $t['menu_width']) ?: '240px',
         ];
 
         $out = '';
@@ -387,7 +536,7 @@ body.mc-admin #wpadminbar .ab-sub-wrapper{background:var(--mc-menu-bg-2);}
 body.mc-admin #adminmenuback,body.mc-admin #adminmenuwrap,body.mc-admin #adminmenu{background:var(--mc-menu-bg);}
 body.mc-admin #adminmenu{padding:10px 0;}
 body.mc-admin #adminmenu a{color:var(--mc-menu-text);font-family:var(--mc-font);}
-body.mc-admin #adminmenu>li.menu-top{margin:2px 10px;border-radius:calc(var(--mc-radius) - 2px);overflow:hidden;}
+body.mc-admin #adminmenu>li.menu-top{margin:2px 10px;border-radius:calc(var(--mc-radius) - 2px);}
 body.mc-admin.folded #adminmenu>li.menu-top{margin:2px 4px;}
 body.mc-admin #adminmenu>li.menu-top>a{border-radius:calc(var(--mc-radius) - 2px);}
 body.mc-admin #adminmenu div.wp-menu-image:before{color:var(--mc-menu-text);opacity:.85;}
@@ -447,7 +596,7 @@ body.mc-admin:not(.block-editor-page) .wp-list-table td,
 body.mc-admin:not(.block-editor-page) .wp-list-table th{padding-top:12px;padding-bottom:12px;}
 body.mc-admin:not(.block-editor-page) .striped>tbody>:nth-child(odd){background:var(--mc-surface);}
 body.mc-admin:not(.block-editor-page) .striped>tbody>:nth-child(even){background:#FBFCFD;}
-body.mc-admin:not(.block-editor-page) .wp-list-table tbody tr:hover{background:var(--mc-primary-soft);}
+body.mc-admin:not(.block-editor-page) .wp-list-table tbody tr:not(.inline-edit-row):hover{background:#F5F7FA;}
 body.mc-admin:not(.block-editor-page) .wp-list-table .row-title{font-weight:600;color:var(--mc-text);}
 body.mc-admin:not(.block-editor-page) .subsubsub a.current{color:var(--mc-primary);}
 body.mc-admin:not(.block-editor-page) .tablenav .tablenav-pages a,
@@ -482,6 +631,136 @@ body.mc-admin .mc-dash-tile .dashicons{width:42px;height:42px;font-size:22px;lin
 body.mc-admin .mc-dash-label{font-size:14px;font-weight:600;}
 body.mc-admin .mc-dash-help{margin:20px 0 0;padding:14px 16px;border-radius:calc(var(--mc-radius) - 2px);background:var(--mc-bg);color:var(--mc-muted);}
 body.mc-admin .mc-dash-help .dashicons{color:var(--mc-primary);vertical-align:middle;}
+
+/* ── Menu latéral large (écrans > 960 px, menu déplié) ── */
+@media screen and (min-width: 961px){
+  body.mc-admin:not(.folded) #adminmenuback,
+  body.mc-admin:not(.folded) #adminmenuwrap,
+  body.mc-admin:not(.folded) #adminmenu{width:var(--mc-menu-w);}
+  body.mc-admin:not(.folded) #wpcontent,
+  body.mc-admin:not(.folded) #wpfooter{margin-left:var(--mc-menu-w);}
+  body.mc-admin:not(.folded) .interface-interface-skeleton{left:var(--mc-menu-w);}
+  body.mc-admin:not(.folded) .woocommerce-layout__header{width:calc(100% - var(--mc-menu-w));}
+  body.mc-admin:not(.folded) #adminmenu .wp-not-current-submenu .wp-submenu{left:calc(var(--mc-menu-w) - 20px);min-width:200px;}
+  body.mc-admin:not(.folded) #adminmenu .wp-has-current-submenu .wp-submenu{width:auto;}
+}
+body.mc-admin #adminmenuback{min-height:100%;}
+body.mc-admin #adminmenu{padding:14px 0;}
+body.mc-admin #adminmenu div.wp-menu-name{font-size:14px;line-height:1.35;padding:10px 10px 10px 42px;}
+body.mc-admin #adminmenu div.wp-menu-image{width:42px;height:40px;}
+body.mc-admin #adminmenu div.wp-menu-image:before{padding:10px 0;}
+body.mc-admin #adminmenu div.wp-menu-image.svg{background-position:center 11px;}
+body.mc-admin.folded #adminmenu div.wp-menu-image{width:28px;}
+body.mc-admin #adminmenu li.wp-menu-separator{height:1px;margin:10px 18px;background:rgba(255,255,255,.08);}
+body.mc-admin #adminmenu li.wp-menu-separator .separator{display:none;}
+/* Groupe courant : élément principal + sous-menu dans un même bloc arrondi */
+body.mc-admin #adminmenu li.wp-has-current-submenu{background:var(--mc-menu-bg-2);border-radius:calc(var(--mc-radius) - 2px);}
+body.mc-admin:not(.folded) #adminmenu li.wp-has-current-submenu>a.menu-top{border-radius:calc(var(--mc-radius) - 2px) calc(var(--mc-radius) - 2px) 0 0;}
+body.mc-admin #adminmenu .wp-has-current-submenu .wp-submenu{padding:6px 0 8px;border-radius:0 0 calc(var(--mc-radius) - 2px) calc(var(--mc-radius) - 2px);}
+body.mc-admin:not(.folded) #adminmenu .wp-submenu a{padding:7px 12px 7px 42px;font-size:13px;line-height:1.4;}
+body.mc-admin #adminmenu .wp-submenu li.current a{font-weight:600;box-shadow:inset 3px 0 0 var(--mc-primary);}
+body.mc-admin #adminmenu .wp-submenu .wp-submenu-head{display:none;}
+/* Sous-menus volants (au survol des autres entrées) */
+body.mc-admin #adminmenu .wp-not-current-submenu .wp-submenu{border-radius:calc(var(--mc-radius) - 2px);box-shadow:0 12px 28px rgba(0,0,0,.28);padding:6px 0;}
+body.mc-admin #adminmenu .wp-not-current-submenu .wp-submenu a{padding-left:16px;}
+body.mc-admin #adminmenu .wp-not-current-submenu .wp-submenu .wp-submenu-head{display:block;padding:8px 16px;color:#fff;font-weight:600;}
+
+/* ── Rouge réservé aux actions ────────────────────────── */
+body.mc-admin:not(.block-editor-page) .wp-list-table tbody td:not(.column-title):not(.column-primary) a:not(.button){color:#374151;}
+body.mc-admin:not(.block-editor-page) .wp-list-table tbody td:not(.column-title):not(.column-primary) a:not(.button):hover{color:var(--mc-primary);}
+body.mc-admin:not(.block-editor-page) .wp-list-table th.sortable a,
+body.mc-admin:not(.block-editor-page) .wp-list-table th.sorted a{color:var(--mc-muted);}
+body.mc-admin:not(.block-editor-page) .wp-list-table th.sorted a,
+body.mc-admin:not(.block-editor-page) .wp-list-table th.sortable a:hover{color:var(--mc-text);}
+body.mc-admin:not(.block-editor-page) .wp-list-table .row-title:hover{color:var(--mc-primary);}
+body.mc-admin:not(.block-editor-page) .row-actions,
+body.mc-admin:not(.block-editor-page) .row-actions a,
+body.mc-admin:not(.block-editor-page) .row-actions .button-link{color:var(--mc-muted);}
+body.mc-admin:not(.block-editor-page) .row-actions a:hover,
+body.mc-admin:not(.block-editor-page) .row-actions .button-link:hover{color:var(--mc-primary);}
+body.mc-admin:not(.block-editor-page) .row-actions .trash a,
+body.mc-admin:not(.block-editor-page) .row-actions .delete a{color:#B42318;}
+body.mc-admin:not(.block-editor-page) .wp-list-table .column-date{color:var(--mc-muted);font-size:12.5px;line-height:1.7;}
+
+/* Onglets Tous / Publiés / Brouillons en pastilles */
+body.mc-admin:not(.block-editor-page) .subsubsub{margin:12px 0 10px;}
+body.mc-admin:not(.block-editor-page) .subsubsub li{font-size:0;}
+body.mc-admin:not(.block-editor-page) .subsubsub li a{font-size:13px;display:inline-block;padding:4px 12px;margin-right:6px;border-radius:999px;color:var(--mc-muted);background:transparent;}
+body.mc-admin:not(.block-editor-page) .subsubsub li a:hover{color:var(--mc-text);background:rgba(17,24,39,.05);}
+body.mc-admin:not(.block-editor-page) .subsubsub li a.current{color:var(--mc-primary);background:var(--mc-primary-soft);font-weight:600;}
+body.mc-admin:not(.block-editor-page) .subsubsub li a .count{color:inherit;opacity:.7;font-weight:400;}
+
+/* Modification rapide */
+body.mc-admin:not(.block-editor-page) .inline-edit-row,
+body.mc-admin:not(.block-editor-page) .inline-edit-row td{background:var(--mc-surface);}
+body.mc-admin:not(.block-editor-page) .inline-edit-row td.colspanchange{box-shadow:inset 3px 0 0 var(--mc-primary);}
+body.mc-admin:not(.block-editor-page) .inline-edit-row fieldset .inline-edit-categories,
+body.mc-admin:not(.block-editor-page) .inline-edit-row .cat-checklist{border-radius:calc(var(--mc-radius) - 4px);border-color:var(--mc-border);}
+
+/* ── Colonne Actions à icônes ─────────────────────────── */
+body.mc-admin .wp-list-table .column-mc_actions{width:150px;text-align:right;}
+body.mc-admin .mc-actions{display:flex;justify-content:flex-end;gap:2px;}
+body.mc-admin .mc-act{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;color:#9CA3AF;text-decoration:none;cursor:pointer;transition:background .15s,color .15s;}
+body.mc-admin .mc-act .dashicons{font-size:18px;width:18px;height:18px;}
+body.mc-admin .mc-act:hover,body.mc-admin .mc-act:focus{background:var(--mc-primary-soft);color:var(--mc-primary);box-shadow:none;outline:none;}
+body.mc-admin .mc-act:focus-visible{box-shadow:0 0 0 2px var(--mc-focus);}
+body.mc-admin .mc-act--danger:hover,body.mc-admin .mc-act--danger:focus{background:#FEE4E2;color:#B42318;}
+body.mc-admin .wp-list-table tbody tr:hover .mc-act{color:#6B7280;}
+@media screen and (min-width: 783px){
+  /* Les actions natives équivalentes disparaissent sous le titre (hors corbeille) */
+  body.mc-row-icons .wp-list-table tr:not(.status-trash) .row-actions .edit,
+  body.mc-row-icons .wp-list-table tr:not(.status-trash) .row-actions .inline,
+  body.mc-row-icons .wp-list-table tr:not(.status-trash) .row-actions .trash,
+  body.mc-row-icons .wp-list-table tr:not(.status-trash) .row-actions .view{display:none;}
+}
+@media screen and (max-width: 782px){
+  body.mc-admin .wp-list-table .column-mc_actions{display:none !important;}
+}
+
+/* ── Pastilles de statut ──────────────────────────────── */
+body.mc-admin .mc-badge{display:inline-block;margin-bottom:3px;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600;line-height:1.6;}
+body.mc-admin .mc-badge--publish{background:#DCFCE7;color:#166534;}
+body.mc-admin .mc-badge--future{background:#DBEAFE;color:#1E40AF;}
+body.mc-admin .mc-badge--draft{background:#F3F4F6;color:#4B5563;}
+body.mc-admin .mc-badge--pending{background:#FEF3C7;color:#92400E;}
+body.mc-admin .mc-badge--private{background:#EDE9FE;color:#5B21B6;}
+body.mc-admin .mc-badge--other{background:#F3F4F6;color:#374151;}
+body.mc-admin .post-state{display:inline-block;padding:1px 8px;border-radius:999px;background:#F3F4F6;color:#4B5563;font-size:11.5px;font-weight:600;}
+
+/* ── Barre d'outils des listes regroupée ──────────────── */
+@media screen and (min-width: 783px){
+  body.mc-admin:not(.block-editor-page) .tablenav.top{display:flex;flex-wrap:wrap;align-items:center;gap:8px;height:auto;margin:0 0 14px;padding:10px 12px;background:var(--mc-surface);border:1px solid var(--mc-border);border-radius:var(--mc-radius);box-shadow:var(--mc-shadow);}
+  body.mc-admin:not(.block-editor-page) .tablenav.top .actions{float:none;padding:0;overflow:visible;display:flex;align-items:center;gap:6px;}
+  body.mc-admin:not(.block-editor-page) .tablenav.top .tablenav-pages{float:none;margin:0 0 0 auto;}
+  body.mc-admin:not(.block-editor-page) .tablenav.top br.clear{display:none;}
+  body.mc-admin:not(.block-editor-page) .tablenav.bottom{margin-top:12px;}
+  body.mc-admin:not(.block-editor-page) p.search-box{margin:10px 0 0;}
+}
+body.mc-admin:not(.block-editor-page) .search-box input[type=search]{min-width:240px;padding:5px 12px 5px 34px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%239CA3AF' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='5'/%3E%3Cpath d='m11 11 3.5 3.5'/%3E%3C/svg%3E") no-repeat 11px center;}
+body.mc-admin:not(.block-editor-page) .tablenav-pages .pagination-links .button{min-width:32px;}
+body.mc-admin:not(.block-editor-page) .tablenav-pages .current-page{border-radius:calc(var(--mc-radius) - 4px);}
+
+/* ── Barre du haut claire (option 'adminbar' => 'light') ── */
+body.mc-admin.mc-adminbar-light #wpadminbar{background:var(--mc-surface);border-bottom:1px solid var(--mc-border);}
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-item,
+body.mc-admin.mc-adminbar-light #wpadminbar a.ab-item,
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-label,
+body.mc-admin.mc-adminbar-light #wpadminbar>#wp-toolbar span.ab-label,
+body.mc-admin.mc-adminbar-light #wpadminbar>#wp-toolbar span.noticon{color:var(--mc-text);}
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-icon,
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-icon:before,
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-item:before,
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-item:after{color:var(--mc-muted);}
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-top-menu>li:hover>.ab-item,
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-top-menu>li.hover>.ab-item,
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-top-menu>li>.ab-item:focus{background:var(--mc-bg);color:var(--mc-primary);}
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-top-menu>li:hover>.ab-item .ab-icon:before,
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-top-menu>li:hover>.ab-item:before{color:var(--mc-primary);}
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-sub-wrapper,
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-sub-wrapper .ab-submenu{background:var(--mc-surface);}
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-sub-wrapper{border:1px solid var(--mc-border);border-radius:0 0 8px 8px;box-shadow:0 10px 24px rgba(16,24,40,.1);}
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-submenu .ab-item{color:var(--mc-text);}
+body.mc-admin.mc-adminbar-light #wpadminbar .ab-submenu .ab-item:hover{color:var(--mc-primary);}
 
 @media (prefers-reduced-motion: reduce){
   body.mc-admin .mc-dash-tile{transition:none;}

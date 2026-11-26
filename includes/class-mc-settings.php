@@ -53,8 +53,10 @@ final class MC_Settings
         return [
             'roles' => $roles,
             'theme' => [
-                'primary' => $o['primary'],
-                'menu_bg' => $o['menu_bg'],
+                'primary'    => $o['primary'],
+                'menu_bg'    => $o['menu_bg'],
+                'menu_width' => ((int) $o['menu_width']) . 'px',
+                'adminbar'   => $o['adminbar'] === 'light' ? 'light' : 'dark',
             ],
             'brand' => [
                 'name'   => $o['brand_name'],
@@ -70,7 +72,9 @@ final class MC_Settings
             'menu' => [
                 'hide' => $o['hide_menus'],
             ],
-            'hide_notices' => !empty($o['hide_notices']),
+            'hide_notices'  => !empty($o['hide_notices']),
+            'status_badges' => !empty($o['status_badges']),
+            'row_icons'     => !empty($o['row_icons']),
         ];
     }
 
@@ -168,6 +172,29 @@ final class MC_Settings
                             <label>Principale <input type="color" name="<?php echo esc_attr(self::OPTION); ?>[primary]" value="<?php echo esc_attr($o['primary']); ?>"></label>
                             &nbsp;&nbsp;
                             <label>Menu <input type="color" name="<?php echo esc_attr(self::OPTION); ?>[menu_bg]" value="<?php echo esc_attr($o['menu_bg']); ?>"></label>
+                            <p>
+                                <label>Largeur du menu
+                                    <input type="number" min="160" max="360" step="10" class="small-text" name="<?php echo esc_attr(self::OPTION); ?>[menu_width]" value="<?php echo esc_attr((string) $o['menu_width']); ?>"> px
+                                </label>
+                            </p>
+                            <label>
+                                <input type="checkbox" name="<?php echo esc_attr(self::OPTION); ?>[adminbar_light]" value="1" <?php checked($o['adminbar'], 'light'); ?>>
+                                Barre du haut blanche
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Listes</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="<?php echo esc_attr(self::OPTION); ?>[status_badges]" value="1" <?php checked($o['status_badges']); ?>>
+                                Pastilles de statut (Publié, Brouillon, Programmé…)
+                            </label><br>
+                            <label>
+                                <input type="checkbox" name="<?php echo esc_attr(self::OPTION); ?>[row_icons]" value="1" <?php checked($o['row_icons']); ?>>
+                                Colonne Actions à icônes (voir, modifier, corbeille)
+                            </label>
+                            <p class="description">La barre d’outils des listes est regroupée, et le champ de recherche affiche un texte d’exemple.</p>
                         </td>
                     </tr>
                     <tr>
@@ -291,6 +318,8 @@ JS
             'logo'         => esc_url_raw((string) ($input['logo'] ?? '')),
             'primary'      => self::hex((string) ($input['primary'] ?? ''), $base['primary']),
             'menu_bg'      => self::hex((string) ($input['menu_bg'] ?? ''), $base['menu_bg']),
+            'menu_width'   => self::menu_width($input['menu_width'] ?? $base['menu_width']),
+            'adminbar'     => empty($input['adminbar_light']) ? 'dark' : 'light',
             'footer'       => wp_kses_post((string) ($input['footer'] ?? '')),
             'dash_title'   => sanitize_text_field((string) ($input['dash_title'] ?? '')),
             'dash_intro'   => sanitize_text_field((string) ($input['dash_intro'] ?? '')),
@@ -298,7 +327,9 @@ JS
             'shortcuts'    => self::parse_shortcuts((string) ($input['shortcuts_text'] ?? '')),
             'hide_menus'   => array_merge($hide_known, $hide_extra),
             'hide_extra'   => implode(', ', $hide_extra),
-            'hide_notices' => empty($input['hide_notices']) ? 0 : 1,
+            'hide_notices'  => empty($input['hide_notices']) ? 0 : 1,
+            'status_badges' => empty($input['status_badges']) ? 0 : 1,
+            'row_icons'     => empty($input['row_icons']) ? 0 : 1,
         ];
     }
 
@@ -336,6 +367,8 @@ JS
             'logo'         => '',
             'primary'      => '#2F6FED',
             'menu_bg'      => '#111827',
+            'menu_width'   => 240,
+            'adminbar'     => 'dark',
             'footer'       => 'Site réalisé par <a href="https://www.midiconcept.fr" target="_blank">Midiconcept</a>',
             'dash_title'   => 'Bienvenue',
             'dash_intro'   => 'Que souhaitez-vous faire aujourd’hui ?',
@@ -347,7 +380,9 @@ JS
             ],
             'hide_menus'   => ['edit-comments.php', 'tools.php'],
             'hide_extra'   => '',
-            'hide_notices' => 1,
+            'hide_notices'  => 1,
+            'status_badges' => 1,
+            'row_icons'     => 1,
         ];
     }
 
@@ -414,6 +449,15 @@ JS
             return 'dashicons-admin-page';
         }
         return 'dashicons-admin-links';
+    }
+
+    private static function menu_width($value): int
+    {
+        $width = (int) $value;
+        if ($width < 160 || $width > 360) {
+            return 240;
+        }
+        return $width;
     }
 
     private static function hex(string $color, string $fallback): string
