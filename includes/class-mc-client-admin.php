@@ -435,7 +435,7 @@ final class MC_Client_Admin
 
             // Modification rapide (même classe que le bouton natif : le JS de WordPress s'en charge)
             if (!wp_check_post_lock($post_id)) {
-                $out .= $btn('dashicons-forms', 'Modification rapide', sprintf(
+                $out .= $btn('dashicons-slides', 'Modification rapide', sprintf(
                     '<button type="button" class="mc-act button-link editinline" aria-expanded="false" title="%s">',
                     esc_attr('Modification rapide de « ' . $title . ' »')
                 ), '</button>');
