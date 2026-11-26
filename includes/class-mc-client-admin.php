@@ -435,8 +435,8 @@ final class MC_Client_Admin
 
             // Modification rapide (même classe que le bouton natif : le JS de WordPress s'en charge)
             if (!wp_check_post_lock($post_id)) {
-                $out .= $btn('dashicons-slides', 'Modification rapide', sprintf(
-                    '<button type="button" class="mc-act button-link editinline" aria-expanded="false" title="%s">',
+                $out .= $btn('dashicons-fullscreen-alt', 'Modification rapide', sprintf(
+                    '<button type="button" class="mc-act mc-act--quick button-link editinline" aria-expanded="false" title="%s">',
                     esc_attr('Modification rapide de « ' . $title . ' »')
                 ), '</button>');
             }
@@ -768,6 +768,11 @@ body.mc-admin .mc-act:hover,body.mc-admin .mc-act:focus{background:var(--mc-prim
 body.mc-admin .mc-act:focus-visible{box-shadow:0 0 0 2px var(--mc-focus);}
 body.mc-admin .mc-act--danger:hover,body.mc-admin .mc-act--danger:focus{background:#FEE4E2;color:#B42318;}
 body.mc-admin .wp-list-table tbody tr:hover .mc-act{color:#6B7280;}
+body.mc-admin .mc-act--quick,
+body.mc-admin .wp-list-table tbody tr:hover .mc-act--quick,
+body.mc-admin .mc-act--quick:hover,
+body.mc-admin .mc-act--quick:focus{color:#111827;background:transparent;}
+body.mc-admin .mc-act--quick:hover,body.mc-admin .mc-act--quick:focus{background:#F3F4F6;}
 @media screen and (min-width: 783px){
   /* Les actions natives équivalentes disparaissent sous le titre (hors corbeille) */
   body.mc-row-icons .wp-list-table tr:not(.status-trash) .row-actions .edit,
