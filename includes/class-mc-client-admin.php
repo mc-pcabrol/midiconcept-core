@@ -53,7 +53,7 @@
  *     ],
  *
  *     'adminbar_remove' => ['wp-logo', 'comments', 'new-content', 'updates'],
- *     'hide_notices'    => true,   // masque les notices de plugins pour les rôles concernés
+ *     'hide_notices'    => true,   // regroupe les notices de plugins dans la barre du haut
  *     'status_badges'   => true,   // colonne « État » (Publié, Brouillon, Programmé…), séparée de la date
  *     'row_icons'       => true,   // colonne « Actions » à icônes (voir, modifier, modif. rapide, corbeille)
  * ]);
@@ -71,6 +71,10 @@ final class MC_Client_Admin
     private static array $cfg = [];
 
     private static bool $ready = false;
+
+    private static bool $notices_opened = false;
+
+    private static bool $notices_closed = false;
 
     /* ───────────────────────────── Initialisation ─────────────────────────── */
 
@@ -91,7 +95,10 @@ final class MC_Client_Admin
         add_filter('admin_footer_text', [__CLASS__, 'footer_text']);
 
         // Éléments ciblés par rôle : on attend que l'utilisateur soit connu.
+        add_action('admin_init', [__CLASS__, 'handle_view_as'], 1);
         add_action('admin_init', [__CLASS__, 'setup_for_user']);
+        add_action('admin_bar_menu', [__CLASS__, 'view_as_menu'], 80);
+        add_action('in_admin_header', [__CLASS__, 'view_as_banner']);
         add_action('admin_bar_menu', [__CLASS__, 'clean_admin_bar'], 999);
     }
 
@@ -158,14 +165,32 @@ final class MC_Client_Admin
             return false;
         }
 
+        $effective = self::effective_roles($user);
         $roles = self::$cfg['roles'];
         if ($roles === 'all') {
             return true;
         }
         if ($roles === null) {
-            return !in_array('administrator', (array) $user->roles, true);
+            return !in_array('administrator', $effective, true);
         }
-        return (bool) array_intersect((array) $roles, (array) $user->roles);
+        return (bool) array_intersect((array) $roles, $effective);
+    }
+
+    /** Rôles utilisés pour l'aperçu. Les droits réels du compte ne changent pas. */
+    private static function effective_roles(WP_User $user): array
+    {
+        if (self::is_real_admin($user)) {
+            $view = get_user_meta($user->ID, 'mc_view_as_role', true);
+            if (is_string($view) && $view !== '' && $view !== 'administrator' && get_role($view)) {
+                return [$view];
+            }
+        }
+        return (array) $user->roles;
+    }
+
+    private static function is_real_admin(WP_User $user): bool
+    {
+        return in_array('administrator', (array) $user->roles, true);
     }
 
     public static function setup_for_user(): void
@@ -227,7 +252,7 @@ final class MC_Client_Admin
             remove_action('welcome_panel', 'wp_welcome_panel');
         }
 
-        add_action('admin_menu', [__CLASS__, 'menu'], 999);
+        add_action('admin_menu', [__CLASS__, 'menu'], 9991);
 
         if (self::$cfg['menu']['order']) {
             add_filter('custom_menu_order', '__return_true');
@@ -235,10 +260,10 @@ final class MC_Client_Admin
         }
 
         if (self::$cfg['hide_notices']) {
-            add_action('in_admin_header', static function () {
-                remove_all_actions('admin_notices');
-                remove_all_actions('all_admin_notices');
-            }, 999);
+            add_action('admin_notices', [__CLASS__, 'notices_open'], PHP_INT_MIN + 1);
+            add_action('all_admin_notices', [__CLASS__, 'notices_close'], PHP_INT_MAX);
+            add_action('admin_bar_menu', [__CLASS__, 'notices_bar'], 50);
+            add_action('admin_footer', [__CLASS__, 'notices_script']);
         }
 
         add_filter('update_footer', '__return_empty_string', 999);
@@ -288,9 +313,215 @@ final class MC_Client_Admin
 
     public static function menu_order(array $order): array
     {
-        $wanted = array_values(array_intersect((array) self::$cfg['menu']['order'], $order));
-        $rest   = array_values(array_diff($order, $wanted));
-        return array_merge($wanted, $rest);
+        $wanted = array_values(array_filter((array) self::$cfg['menu']['order'], 'is_string'));
+        if (!$wanted) {
+            return $order;
+        }
+
+        // Les séparateurs qui précèdent une entrée la suivent quand on la déplace.
+        $before  = [];
+        $pending = [];
+        foreach ($order as $slug) {
+            if (strpos((string) $slug, 'separator') === 0) {
+                $pending[] = $slug;
+                continue;
+            }
+            $before[$slug] = $pending;
+            $pending = [];
+        }
+
+        $placed = [];
+        $out    = [];
+        foreach ($wanted as $slug) {
+            if (!in_array($slug, $order, true) || isset($placed[$slug])) {
+                continue;
+            }
+            foreach ($before[$slug] ?? [] as $sep) {
+                if (!isset($placed[$sep])) {
+                    $out[] = $sep;
+                    $placed[$sep] = true;
+                }
+            }
+            $out[] = $slug;
+            $placed[$slug] = true;
+        }
+        foreach ($order as $slug) {
+            if (!isset($placed[$slug])) {
+                $out[] = $slug;
+                $placed[$slug] = true;
+            }
+        }
+        return $out;
+    }
+
+    /* ─────────────────────────────── Aperçu par rôle ──────────────────────── */
+
+    public static function handle_view_as(): void
+    {
+        if (!isset($_GET['mc_view_as'])) {
+            return;
+        }
+
+        $user = wp_get_current_user();
+        if (!$user instanceof WP_User || !self::is_real_admin($user)) {
+            return;
+        }
+
+        $role = sanitize_key(wp_unslash($_GET['mc_view_as']));
+        check_admin_referer('mc_view_as_' . $role);
+
+        if ($role === 'reset') {
+            delete_user_meta($user->ID, 'mc_view_as_role');
+        } elseif ($role !== 'administrator' && get_role($role)) {
+            update_user_meta($user->ID, 'mc_view_as_role', $role);
+        }
+
+        wp_safe_redirect(remove_query_arg(['mc_view_as', '_wpnonce']));
+        exit;
+    }
+
+    public static function view_as_menu(WP_Admin_Bar $bar): void
+    {
+        $user = wp_get_current_user();
+        if (!$user instanceof WP_User || !self::is_real_admin($user)) {
+            return;
+        }
+
+        if (!function_exists('get_editable_roles')) {
+            require_once ABSPATH . 'wp-admin/includes/user.php';
+        }
+
+        $current = (string) get_user_meta($user->ID, 'mc_view_as_role', true);
+        $label   = 'Voir comme';
+        if ($current !== '' && get_role($current)) {
+            $label = 'Aperçu : ' . self::role_label($current);
+        }
+
+        $bar->add_node([
+            'id'     => 'mc-view-as',
+            'parent' => 'top-secondary',
+            'title'  => esc_html($label),
+            'href'   => '#',
+        ]);
+
+        if ($current !== '') {
+            $bar->add_node([
+                'id'     => 'mc-view-as-reset',
+                'parent' => 'mc-view-as',
+                'title'  => 'Revenir à l’administrateur',
+                'href'   => self::view_as_url('reset'),
+            ]);
+        }
+
+        foreach (get_editable_roles() as $slug => $role) {
+            if ($slug === 'administrator') {
+                continue;
+            }
+            $name = translate_user_role($role['name'] ?? $slug);
+            if ($slug === $current) {
+                $name .= ' ✓';
+            }
+            $bar->add_node([
+                'id'     => 'mc-view-as-' . $slug,
+                'parent' => 'mc-view-as',
+                'title'  => esc_html($name),
+                'href'   => self::view_as_url($slug),
+            ]);
+        }
+    }
+
+    public static function view_as_banner(): void
+    {
+        $user = wp_get_current_user();
+        if (!$user instanceof WP_User || !self::is_real_admin($user)) {
+            return;
+        }
+
+        $role = (string) get_user_meta($user->ID, 'mc_view_as_role', true);
+        if ($role === '' || !get_role($role)) {
+            return;
+        }
+
+        $back = esc_url(self::view_as_url('reset'));
+        echo '<div class="notice notice-info" style="margin:12px 20px 0;"><p>Vous voyez l’admin comme <strong>'
+            . esc_html(self::role_label($role))
+            . '</strong>. Les menus et l’apparence suivent ce rôle, vos droits d’administrateur restent en place. <a href="'
+            . $back
+            . '">Revenir</a></p></div>';
+    }
+
+    private static function view_as_url(string $role): string
+    {
+        return wp_nonce_url(add_query_arg('mc_view_as', $role), 'mc_view_as_' . $role);
+    }
+
+    private static function role_label(string $slug): string
+    {
+        $roles = wp_roles()->roles;
+        $name  = $roles[$slug]['name'] ?? $slug;
+        return translate_user_role($name);
+    }
+
+    /* ─────────────────────────────── Notifications ────────────────────────── */
+
+    public static function notices_open(): void
+    {
+        if (self::$notices_opened) {
+            return;
+        }
+        self::$notices_opened = true;
+        echo '<div id="mc-notices" class="mc-notices" hidden>';
+    }
+
+    public static function notices_close(): void
+    {
+        if (!self::$notices_opened || self::$notices_closed) {
+            return;
+        }
+        self::$notices_closed = true;
+        echo '</div>';
+    }
+
+    public static function notices_bar(WP_Admin_Bar $bar): void
+    {
+        $bar->add_node([
+            'id'    => 'mc-notices-toggle',
+            'title' => 'Notifications',
+            'href'  => '#mc-notices',
+        ]);
+    }
+
+    public static function notices_script(): void
+    {
+        echo <<<'HTML'
+<style>
+#mc-notices[hidden]{display:none !important;}
+#mc-notices:not([hidden]){margin:8px 20px 0 2px;}
+#wpadminbar .mc-notices-count{display:inline-block;min-width:16px;margin-left:6px;padding:0 6px;border-radius:8px;background:#d63638;color:#fff;font-size:11px;line-height:16px;text-align:center;}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var box = document.getElementById('mc-notices');
+    var link = document.querySelector('#wp-admin-bar-mc-notices-toggle > a');
+    if (!box || !link) return;
+    var n = box.querySelectorAll('.notice, .updated, .error, .update-nag').length;
+    var item = document.getElementById('wp-admin-bar-mc-notices-toggle');
+    if (!n) {
+        if (item) item.style.display = 'none';
+        return;
+    }
+    var badge = document.createElement('span');
+    badge.className = 'mc-notices-count';
+    badge.textContent = String(n);
+    link.appendChild(badge);
+    link.addEventListener('click', function (e) {
+        e.preventDefault();
+        if (box.hasAttribute('hidden')) box.removeAttribute('hidden');
+        else box.setAttribute('hidden', '');
+    });
+});
+</script>
+HTML;
     }
 
     /* ─────────────────────────────── Tableau de bord ──────────────────────── */

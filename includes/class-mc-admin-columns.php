@@ -74,6 +74,18 @@ final class MC_Admin_Columns
         self::hook_post_type($post_type);
     }
 
+    /** Taxonomies déjà filtrées par une colonne, pour ne pas doubler la liste déroulante. */
+    public static function filtered_taxonomies(string $post_type): array
+    {
+        $out = [];
+        foreach (self::$columns[$post_type] ?? [] as $args) {
+            if (!empty($args['filter']) && !empty($args['taxonomy'])) {
+                $out[] = (string) $args['taxonomy'];
+            }
+        }
+        return $out;
+    }
+
     /* ─────────────────────────────── Branchement ──────────────────────────── */
 
     private static function normalize(array $args): array

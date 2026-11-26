@@ -69,7 +69,9 @@ Les sites la voient lors de leur prochaine vérification (environ toutes les 12 
 
 ## 5. Configurer un site
 
-Le cas courant : *Réglages → MidiConcept*. La page est en onglets (Apparence, Identité, Tableau de bord, Menu, Listes, Colonnes).
+Le cas courant : *Réglages → MidiConcept*. La page est en onglets (Apparence, Identité, Tableau de bord, Menu, Listes, Contenu, Colonnes).
+
+L’onglet Menu ordonne, renomme et masque les entrées. L’onglet Listes ajoute l’identifiant et les filtres de taxonomies. L’onglet Contenu couvre la duplication, les publications programmées manquées et le remplacement d’un média. Dans la barre du haut, un administrateur peut voir l’admin comme un autre rôle, sans perdre ses droits.
 
 L’onglet Colonnes couvre miniature, champ ACF, méta et taxonomie. Pour une colonne calculée par une fonction PHP, un mu-plugin (ou le `functions.php` du thème) reste possible :
 
@@ -90,7 +92,8 @@ midiconcept-core/
 ├── includes/
 │   ├── class-mc-admin-columns.php
 │   ├── class-mc-client-admin.php
-│   └── class-mc-settings.php      page Réglages → MidiConcept
+│   ├── class-mc-settings.php      page Réglages → MidiConcept
+│   └── class-mc-tools.php         duplication, médias, listes
 ├── lib/plugin-update-checker/    bibliothèque embarquée (ne pas modifier)
 ├── examples/mc-site-config.php   modèle facultatif (colonnes, options avancées)
 ├── bin/release.sh                script de publication

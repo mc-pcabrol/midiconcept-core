@@ -15,6 +15,9 @@ final class MC_Settings
     /** Vrai si un mu-plugin ou le thème a déjà appelé MC_Client_Admin::init(). */
     public static bool $from_code = false;
 
+    /** @var array<int, mixed> Menu admin avant masquage et renommage. */
+    private static array $menu_snapshot = [];
+
     private const MENUS = [
         'edit-comments.php'       => 'Commentaires',
         'tools.php'               => 'Outils',
@@ -30,6 +33,7 @@ final class MC_Settings
     public static function boot(): void
     {
         add_action('admin_menu', [__CLASS__, 'menu']);
+        add_action('admin_menu', [__CLASS__, 'capture_menu'], 9990);
         add_action('admin_init', [__CLASS__, 'register']);
         add_filter('plugin_action_links_' . plugin_basename(MC_CORE_FILE), [__CLASS__, 'action_link']);
         add_filter('wp_redirect', [__CLASS__, 'keep_tab']);
@@ -44,8 +48,68 @@ final class MC_Settings
             'dashboard' => 'Tableau de bord',
             'menu'      => 'Menu',
             'listes'    => 'Listes',
+            'contenu'   => 'Contenu',
             'colonnes'  => 'Colonnes',
         ];
+    }
+
+    /** Outils de contenu et de listes, indépendants de l'admin client. */
+    public static function tools(): array
+    {
+        $o = self::get();
+        return [
+            'duplicate'       => !empty($o['duplicate']),
+            'missed_schedule' => !empty($o['missed_schedule']),
+            'media_replace'   => !empty($o['media_replace']),
+            'show_id'         => !empty($o['show_id']),
+            'tax_filters'     => !empty($o['tax_filters']),
+        ];
+    }
+
+    public static function capture_menu(): void
+    {
+        global $menu;
+        self::$menu_snapshot = is_array($menu) ? $menu : [];
+    }
+
+    /** @param array<string, mixed> $o @return array<int, array{slug: string, title: string}> */
+    private static function ordered_menu_items(array $o): array
+    {
+        $rows = [];
+        foreach (self::$menu_snapshot as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $slug  = isset($item[2]) ? (string) $item[2] : '';
+            $title = trim(wp_strip_all_tags(wp_specialchars_decode((string) ($item[0] ?? ''))));
+            if ($slug === '' || $title === '' || strpos($slug, 'separator') === 0) {
+                continue;
+            }
+            $rows[$slug] = $title;
+        }
+
+        $sorted = [];
+        $order  = is_array($o['menu_order'] ?? null) ? $o['menu_order'] : [];
+        foreach ($order as $slug) {
+            $slug = (string) $slug;
+            if (isset($rows[$slug])) {
+                $sorted[] = ['slug' => $slug, 'title' => $rows[$slug]];
+                unset($rows[$slug]);
+            }
+        }
+        foreach ($rows as $slug => $title) {
+            $sorted[] = ['slug' => $slug, 'title' => $title];
+        }
+        return $sorted;
+    }
+
+    private static function menu_slug(string $slug): string
+    {
+        $slug = trim(wp_unslash($slug));
+        if ($slug === '' || !preg_match('/^[a-z0-9_?.=&\/-]+$/i', $slug)) {
+            return '';
+        }
+        return $slug;
     }
 
     /** Config prête pour MC_Client_Admin::init(), ou null si l'admin client est désactivé. */
@@ -84,7 +148,9 @@ final class MC_Settings
                 'help'      => $o['help'],
             ],
             'menu' => [
-                'hide' => $o['hide_menus'],
+                'hide'   => $o['hide_menus'],
+                'rename' => is_array($o['menu_rename']) ? $o['menu_rename'] : [],
+                'order'  => is_array($o['menu_order']) ? $o['menu_order'] : [],
             ],
             'hide_notices'  => !empty($o['hide_notices']),
             'status_badges' => !empty($o['status_badges']),
@@ -194,7 +260,7 @@ final class MC_Settings
 
             <?php if (self::$from_code) : ?>
                 <div class="notice notice-warning">
-                    <p>Un fichier PHP configure déjà l’admin client. Les onglets Apparence, Identité, Tableau de bord, Menu et Listes ne sont pas appliqués. L’onglet Colonnes reste actif.</p>
+                    <p>Un fichier PHP configure déjà l’admin client (apparence, identité, tableau de bord, menu, pastilles). Les onglets Colonnes et Contenu restent actifs, ainsi que l’identifiant et les filtres de taxonomie.</p>
                 </div>
             <?php endif; ?>
 
@@ -211,7 +277,7 @@ final class MC_Settings
                 <div class="mc-panel<?php echo $tab === 'apparence' ? ' is-active' : ''; ?>" data-tab="apparence">
                     <section class="mc-card">
                         <h2>Activation</h2>
-                        <p class="mc-lead">Qui voit l’admin modernisé. Les administrateurs gardent l’admin WordPress classique, sauf si vous les incluez.</p>
+                        <p class="mc-lead">Qui voit l’admin modernisé. Les administrateurs gardent l’admin WordPress classique, sauf si vous les incluez. Dans la barre du haut, « Voir comme » affiche l’admin tel qu’un rôle le voit, sans retirer vos droits.</p>
                         <table class="form-table" role="presentation">
                             <tr>
                                 <th scope="row">Admin client</th>
@@ -343,27 +409,43 @@ final class MC_Settings
 
                 <div class="mc-panel<?php echo $tab === 'menu' ? ' is-active' : ''; ?>" data-tab="menu">
                     <section class="mc-card">
-                        <h2>Entrées masquées</h2>
-                        <p class="mc-lead">Masquer un menu ne bloque pas son adresse. Pour interdire l’accès, retirez la capacité du rôle.</p>
-                        <table class="form-table" role="presentation">
-                            <tr>
-                                <th scope="row">Menus</th>
-                                <td>
-                                    <div class="mc-roles">
-                                        <?php foreach (self::MENUS as $slug => $label) : ?>
-                                            <label>
-                                                <input type="checkbox" name="<?php echo esc_attr($opt); ?>[hide_menus][]" value="<?php echo esc_attr($slug); ?>" <?php checked(in_array($slug, $o['hide_menus'], true)); ?>>
-                                                <?php echo esc_html($label); ?>
-                                            </label>
-                                        <?php endforeach; ?>
+                        <h2>Ordre, nom et masquage</h2>
+                        <p class="mc-lead">Glissez une ligne pour la placer. Le champ renomme l’entrée. La case la masque. Masquer un menu ne bloque pas son adresse.</p>
+                        <?php
+                        $menu_items = self::ordered_menu_items($o);
+                        $renames = is_array($o['menu_rename']) ? $o['menu_rename'] : [];
+                        if ($menu_items) :
+                            ?>
+                            <div id="mc-menu-sort" class="mc-menu-list">
+                                <?php foreach ($menu_items as $i => $item) : ?>
+                                    <div class="mc-menu-row">
+                                        <span class="mc-menu-handle" title="Glisser" aria-hidden="true">⋮⋮</span>
+                                        <input type="hidden" name="<?php echo esc_attr($opt); ?>[menu_items][<?php echo (int) $i; ?>][slug]" value="<?php echo esc_attr($item['slug']); ?>">
+                                        <label class="mc-menu-hide">
+                                            <input type="checkbox" name="<?php echo esc_attr($opt); ?>[menu_items][<?php echo (int) $i; ?>][hide]" value="1" <?php checked(in_array($item['slug'], $o['hide_menus'], true)); ?>>
+                                            <span class="screen-reader-text">Masquer <?php echo esc_html($item['title']); ?></span>
+                                        </label>
+                                        <span class="mc-menu-native"><?php echo esc_html($item['title']); ?></span>
+                                        <input type="text" class="regular-text" name="<?php echo esc_attr($opt); ?>[menu_items][<?php echo (int) $i; ?>][title]" value="<?php echo esc_attr((string) ($renames[$item['slug']] ?? '')); ?>" placeholder="Nouveau nom">
                                     </div>
-                                </td>
-                            </tr>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php else : ?>
+                            <div class="mc-roles">
+                                <?php foreach (self::MENUS as $slug => $label) : ?>
+                                    <label>
+                                        <input type="checkbox" name="<?php echo esc_attr($opt); ?>[hide_menus][]" value="<?php echo esc_attr($slug); ?>" <?php checked(in_array($slug, $o['hide_menus'], true)); ?>>
+                                        <?php echo esc_html($label); ?>
+                                    </label>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                        <table class="form-table" role="presentation">
                             <tr>
                                 <th scope="row"><label for="mc-hide-extra">Autres menus</label></th>
                                 <td>
                                     <input type="text" class="large-text" id="mc-hide-extra" name="<?php echo esc_attr($opt); ?>[hide_extra]" value="<?php echo esc_attr($o['hide_extra']); ?>" placeholder="edit.php?post_type=bien">
-                                    <p class="description">Slugs séparés par des virgules, par exemple un type de contenu.</p>
+                                    <p class="description">Slugs absents de la liste, séparés par des virgules.</p>
                                 </td>
                             </tr>
                         </table>
@@ -376,8 +458,9 @@ final class MC_Settings
                                 <td>
                                     <label class="mc-choice">
                                         <input type="checkbox" name="<?php echo esc_attr($opt); ?>[hide_notices]" value="1" <?php checked($o['hide_notices']); ?>>
-                                        Masquer les notifications des autres extensions
+                                        Regrouper les notifications dans la barre du haut
                                     </label>
+                                    <p class="description">Elles restent accessibles, avec leur nombre, au lieu d’encombrer le haut des pages.</p>
                                 </td>
                             </tr>
                         </table>
@@ -404,6 +487,73 @@ final class MC_Settings
                                     <label class="mc-choice">
                                         <input type="checkbox" name="<?php echo esc_attr($opt); ?>[row_icons]" value="1" <?php checked($o['row_icons']); ?>>
                                         Colonne d’icônes : voir, modifier, modification rapide, corbeille
+                                    </label>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Identifiant</th>
+                                <td>
+                                    <label class="mc-choice">
+                                        <input type="checkbox" name="<?php echo esc_attr($opt); ?>[show_id]" value="1" <?php checked($o['show_id']); ?>>
+                                        Colonne ID, triable
+                                    </label>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Taxonomies</th>
+                                <td>
+                                    <label class="mc-choice">
+                                        <input type="checkbox" name="<?php echo esc_attr($opt); ?>[tax_filters]" value="1" <?php checked($o['tax_filters']); ?>>
+                                        Filtres des taxonomies hiérarchiques déjà en place
+                                    </label>
+                                    <p class="description">Les catégories d’articles restent celles de WordPress. Une colonne de l’onglet Colonnes qui filtre déjà une taxonomie n’est pas doublée.</p>
+                                </td>
+                            </tr>
+                        </table>
+                    </section>
+                </div>
+
+                <div class="mc-panel<?php echo $tab === 'contenu' ? ' is-active' : ''; ?>" data-tab="contenu">
+                    <section class="mc-card">
+                        <h2>Duplication</h2>
+                        <p class="mc-lead">Un lien « Dupliquer » dans les listes. La copie reprend le texte, les champs et les taxonomies, et s’ouvre en brouillon.</p>
+                        <table class="form-table" role="presentation">
+                            <tr>
+                                <th scope="row">Listes</th>
+                                <td>
+                                    <label class="mc-choice">
+                                        <input type="checkbox" name="<?php echo esc_attr($opt); ?>[duplicate]" value="1" <?php checked($o['duplicate']); ?>>
+                                        Autoriser la duplication
+                                    </label>
+                                </td>
+                            </tr>
+                        </table>
+                    </section>
+                    <section class="mc-card">
+                        <h2>Publications programmées</h2>
+                        <p class="mc-lead">WordPress rate parfois l’heure prévue. Le contrôle a lieu au plus toutes les quinze minutes.</p>
+                        <table class="form-table" role="presentation">
+                            <tr>
+                                <th scope="row">Calendrier</th>
+                                <td>
+                                    <label class="mc-choice">
+                                        <input type="checkbox" name="<?php echo esc_attr($opt); ?>[missed_schedule]" value="1" <?php checked($o['missed_schedule']); ?>>
+                                        Publier les contenus dont l’heure est dépassée
+                                    </label>
+                                </td>
+                            </tr>
+                        </table>
+                    </section>
+                    <section class="mc-card">
+                        <h2>Médiathèque</h2>
+                        <p class="mc-lead">Sur la fiche d’un média, un champ permet de remplacer le fichier. L’adresse reste la même si l’extension ne change pas.</p>
+                        <table class="form-table" role="presentation">
+                            <tr>
+                                <th scope="row">Fichier</th>
+                                <td>
+                                    <label class="mc-choice">
+                                        <input type="checkbox" name="<?php echo esc_attr($opt); ?>[media_replace]" value="1" <?php checked($o['media_replace']); ?>>
+                                        Autoriser le remplacement
                                     </label>
                                 </td>
                             </tr>
@@ -557,6 +707,45 @@ jQuery(function ($) {
             if (row) row.remove();
         });
     }
+
+    var menuList = document.getElementById('mc-menu-sort');
+    if (menuList) {
+        var drag = null;
+        menuList.querySelectorAll('.mc-menu-row').forEach(function (row) {
+            var handle = row.querySelector('.mc-menu-handle');
+            if (!handle) return;
+            handle.setAttribute('draggable', 'true');
+            handle.addEventListener('dragstart', function (e) {
+                drag = row;
+                row.classList.add('is-dragging');
+                if (e.dataTransfer) {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', row.querySelector('input[type="hidden"]').value || 'menu');
+                }
+            });
+            handle.addEventListener('dragend', function () {
+                row.classList.remove('is-dragging');
+                drag = null;
+            });
+            row.addEventListener('dragover', function (e) {
+                if (!drag || drag === row) return;
+                e.preventDefault();
+                var rect = row.getBoundingClientRect();
+                var after = (e.clientY - rect.top) > rect.height / 2;
+                menuList.insertBefore(drag, after ? row.nextSibling : row);
+            });
+        });
+        var form = menuList.closest('form');
+        if (form) {
+            form.addEventListener('submit', function () {
+                menuList.querySelectorAll('.mc-menu-row').forEach(function (row, i) {
+                    row.querySelectorAll('[name]').forEach(function (input) {
+                        input.name = input.name.replace(/\[menu_items\]\[\d+\]/, '[menu_items][' + i + ']');
+                    });
+                });
+            });
+        }
+    }
 });
 JS
         );
@@ -581,18 +770,81 @@ JS
             $mode = 'except_admin';
         }
 
-        $known_menus = array_keys(self::MENUS);
-        $hide = array_values(array_intersect((array) ($input['hide_menus'] ?? []), $known_menus));
+        $previous = get_option(self::OPTION, []);
+        if (!is_array($previous)) {
+            $previous = [];
+        }
 
+        $extras = [];
         $extra_raw = sanitize_text_field((string) ($input['hide_extra'] ?? ''));
         foreach (preg_split('/\s*,\s*/', $extra_raw) ?: [] as $slug) {
-            $slug = trim($slug);
-            if ($slug !== '' && preg_match('/^[a-z0-9_?.=&-]+$/i', $slug) && !in_array($slug, $hide, true)) {
-                $hide[] = $slug;
+            $slug = self::menu_slug($slug);
+            if ($slug !== '' && !in_array($slug, $extras, true)) {
+                $extras[] = $slug;
             }
         }
-        $hide_known = array_values(array_intersect($hide, $known_menus));
-        $hide_extra = array_values(array_diff($hide, $known_menus));
+
+        $menu_order  = [];
+        $menu_rename = [];
+        if (!empty($input['menu_items']) && is_array($input['menu_items'])) {
+            $hide = [];
+            $seen = [];
+            foreach ($input['menu_items'] as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+                $slug = self::menu_slug((string) ($row['slug'] ?? ''));
+                if ($slug === '' || isset($seen[$slug])) {
+                    continue;
+                }
+                $seen[$slug] = true;
+                $menu_order[] = $slug;
+                if (!empty($row['hide'])) {
+                    $hide[] = $slug;
+                }
+                $title = sanitize_text_field((string) ($row['title'] ?? ''));
+                if ($title !== '') {
+                    $menu_rename[$slug] = $title;
+                }
+            }
+            foreach ($extras as $slug) {
+                if (!isset($seen[$slug])) {
+                    $hide[] = $slug;
+                }
+            }
+            $hide_extra = [];
+            foreach ($extras as $slug) {
+                if (!isset($seen[$slug])) {
+                    $hide_extra[] = $slug;
+                }
+            }
+        } else {
+            $known_menus = array_keys(self::MENUS);
+            $hide = array_values(array_intersect((array) ($input['hide_menus'] ?? []), $known_menus));
+            foreach ($extras as $slug) {
+                if (!in_array($slug, $hide, true)) {
+                    $hide[] = $slug;
+                }
+            }
+            $hide_extra = array_values(array_diff($hide, $known_menus));
+            if (isset($previous['menu_order']) && is_array($previous['menu_order'])) {
+                foreach ($previous['menu_order'] as $slug) {
+                    $slug = self::menu_slug((string) $slug);
+                    if ($slug !== '') {
+                        $menu_order[] = $slug;
+                    }
+                }
+            }
+            if (isset($previous['menu_rename']) && is_array($previous['menu_rename'])) {
+                foreach ($previous['menu_rename'] as $slug => $title) {
+                    $slug  = self::menu_slug((string) $slug);
+                    $title = sanitize_text_field((string) $title);
+                    if ($slug !== '' && $title !== '') {
+                        $menu_rename[$slug] = $title;
+                    }
+                }
+            }
+        }
 
         return [
             'enabled'        => empty($input['enabled']) ? 0 : 1,
@@ -609,11 +861,18 @@ JS
             'dash_intro'     => sanitize_text_field((string) ($input['dash_intro'] ?? '')),
             'help'           => wp_kses_post((string) ($input['help'] ?? '')),
             'shortcuts'      => self::parse_shortcuts((string) ($input['shortcuts_text'] ?? '')),
-            'hide_menus'     => array_merge($hide_known, $hide_extra),
+            'hide_menus'     => array_values($hide),
             'hide_extra'     => implode(', ', $hide_extra),
+            'menu_order'     => $menu_order,
+            'menu_rename'    => $menu_rename,
             'hide_notices'   => empty($input['hide_notices']) ? 0 : 1,
             'status_badges'  => empty($input['status_badges']) ? 0 : 1,
             'row_icons'      => empty($input['row_icons']) ? 0 : 1,
+            'show_id'        => empty($input['show_id']) ? 0 : 1,
+            'tax_filters'    => empty($input['tax_filters']) ? 0 : 1,
+            'duplicate'      => empty($input['duplicate']) ? 0 : 1,
+            'missed_schedule'=> empty($input['missed_schedule']) ? 0 : 1,
+            'media_replace'  => empty($input['media_replace']) ? 0 : 1,
             'columns'        => self::sanitize_columns($input['columns'] ?? []),
             'columns_hide'   => self::sanitize_hide((string) ($input['columns_hide_text'] ?? '')),
         ];
@@ -640,9 +899,18 @@ JS
 .mc-col-check{flex-direction:row !important;align-items:center;align-self:end;padding-bottom:6px;}
 .mc-col-actions{margin:12px 0 10px;}
 .mc-save-note{margin-top:-4px;}
+.mc-menu-list{max-width:720px;margin:8px 0 6px;}
+.mc-menu-row{display:grid;grid-template-columns:28px 28px minmax(120px,1fr) minmax(160px,1.2fr);gap:10px;align-items:center;padding:8px 10px;margin:0 0 6px;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;}
+.mc-menu-row.is-dragging{opacity:.45;}
+.mc-menu-handle{color:#9CA3AF;font-size:16px;line-height:1;text-align:center;cursor:grab;}
+.mc-menu-hide{display:flex;align-items:center;justify-content:center;margin:0;}
+.mc-menu-native{color:#646970;font-size:13px;}
+.mc-menu-row input.regular-text{width:100%;max-width:none;}
 @media (max-width:782px){
   .mc-col-grid{grid-template-columns:1fr;}
   .mc-card{padding-left:16px;padding-right:16px;}
+  .mc-menu-row{grid-template-columns:28px 28px 1fr;}
+  .mc-menu-row input.regular-text{grid-column:1 / -1;}
 }
 </style>';
     }
@@ -823,11 +1091,18 @@ JS
                 ['label' => 'Médiathèque', 'url' => 'upload.php', 'icon' => 'dashicons-format-gallery'],
                 ['label' => 'Voir le site', 'url' => '/', 'icon' => 'dashicons-external'],
             ],
-            'hide_menus'    => ['edit-comments.php', 'tools.php'],
-            'hide_extra'    => '',
-            'hide_notices'  => 1,
-            'status_badges' => 1,
-            'row_icons'     => 1,
+            'hide_menus'      => ['edit-comments.php', 'tools.php'],
+            'hide_extra'      => '',
+            'menu_order'      => [],
+            'menu_rename'     => [],
+            'hide_notices'    => 1,
+            'status_badges'   => 1,
+            'row_icons'       => 1,
+            'show_id'         => 1,
+            'tax_filters'     => 1,
+            'duplicate'       => 1,
+            'missed_schedule' => 1,
+            'media_replace'   => 1,
             'columns'       => [],
             'columns_hide'  => [],
         ];
