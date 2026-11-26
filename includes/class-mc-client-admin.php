@@ -54,7 +54,7 @@
  *
  *     'adminbar_remove' => ['wp-logo', 'comments', 'new-content', 'updates'],
  *     'hide_notices'    => true,   // masque les notices de plugins pour les rôles concernés
- *     'status_badges'   => true,   // pastilles Publié / Brouillon / Programmé dans les listes
+ *     'status_badges'   => true,   // colonne « État » (Publié, Brouillon, Programmé…), séparée de la date
  *     'row_icons'       => true,   // colonne « Actions » à icônes (voir, modifier, modif. rapide, corbeille)
  * ]);
  *
@@ -199,7 +199,26 @@ final class MC_Client_Admin
         }
 
         if (self::$cfg['status_badges']) {
-            add_filter('post_date_column_status', [__CLASS__, 'status_badge'], 10, 2);
+            $add_status = static function (array $cols): array {
+                $new = [];
+                foreach ($cols as $key => $label) {
+                    if ($key === 'date') {
+                        $new['mc_status'] = 'État';
+                    }
+                    $new[$key] = $label;
+                }
+                if (!isset($new['mc_status'])) {
+                    $new['mc_status'] = 'État';
+                }
+                return $new;
+            };
+            add_filter('manage_posts_columns', $add_status, 20);
+            add_filter('manage_pages_columns', $add_status, 20);
+            add_action('manage_posts_custom_column', [__CLASS__, 'status_cell'], 10, 2);
+            add_action('manage_pages_custom_column', [__CLASS__, 'status_cell'], 10, 2);
+            // WordPress ajoute un <br> après ce texte : on le vide, le CSS retire le saut de ligne.
+            add_filter('post_date_column_status', static fn() => '', 10);
+            add_filter('admin_body_class', static fn($c) => $c . ' mc-status-col ');
             add_filter('display_post_states', [__CLASS__, 'post_states'], 10, 2);
         }
 
@@ -327,26 +346,40 @@ final class MC_Client_Admin
 
     /* ─────────────────────────────── Listes ───────────────────────────────── */
 
-    /** Colonne Date : le statut devient une pastille colorée. */
-    public static function status_badge($status, $post): string
+    /** Colonne « État », à gauche de la date. */
+    public static function status_cell(string $column, int $post_id): void
     {
-        if (!$post instanceof WP_Post || $status === '') {
-            return (string) $status;
+        if ($column !== 'mc_status') {
+            return;
         }
+        $post = get_post($post_id);
+        if ($post instanceof WP_Post) {
+            echo self::status_badge_html($post); // phpcs:ignore -- échappé dans la méthode
+        }
+    }
 
+    private static function status_badge_html(WP_Post $post): string
+    {
         $map = [
             'publish' => ['Publié', 'publish'],
             'future'  => ['Programmé', 'future'],
             'draft'   => ['Brouillon', 'draft'],
             'pending' => ['En attente', 'pending'],
             'private' => ['Privé', 'private'],
+            'trash'   => ['Corbeille', 'other'],
         ];
-        [$label, $mod] = $map[$post->post_status] ?? [wp_strip_all_tags((string) $status), 'other'];
+
+        if (isset($map[$post->post_status])) {
+            [$label, $mod] = $map[$post->post_status];
+        } else {
+            $obj   = get_post_status_object($post->post_status);
+            $label = $obj->label ?? $post->post_status;
+            $mod   = 'other';
+        }
 
         return sprintf(
-            '<span class="mc-badge mc-badge--%s" title="%s">%s</span>',
+            '<span class="mc-badge mc-badge--%s">%s</span>',
             esc_attr($mod),
-            esc_attr(wp_strip_all_tags((string) $status)),
             esc_html($label)
         );
     }
@@ -591,9 +624,10 @@ body.mc-admin:not(.block-editor-page) .wp-list-table{border:1px solid var(--mc-b
 body.mc-admin:not(.block-editor-page) .wp-list-table thead th,
 body.mc-admin:not(.block-editor-page) .wp-list-table thead td,
 body.mc-admin:not(.block-editor-page) .wp-list-table tfoot th,
-body.mc-admin:not(.block-editor-page) .wp-list-table tfoot td{background:#F9FAFB;border-color:var(--mc-border);font-weight:600;color:var(--mc-muted);}
+body.mc-admin:not(.block-editor-page) .wp-list-table tfoot td{background:#F9FAFB;border-color:#C5CAD3;font-weight:600;color:var(--mc-muted);}
 body.mc-admin:not(.block-editor-page) .wp-list-table td,
-body.mc-admin:not(.block-editor-page) .wp-list-table th{padding-top:12px;padding-bottom:12px;}
+body.mc-admin:not(.block-editor-page) .wp-list-table th,
+body.mc-admin:not(.block-editor-page) .wp-list-table .check-column{padding-top:14px;padding-bottom:14px;vertical-align:middle;border-bottom:1px solid #C5CAD3;}
 body.mc-admin:not(.block-editor-page) .striped>tbody>:nth-child(odd){background:var(--mc-surface);}
 body.mc-admin:not(.block-editor-page) .striped>tbody>:nth-child(even){background:#FBFCFD;}
 body.mc-admin:not(.block-editor-page) .wp-list-table tbody tr:not(.inline-edit-row):hover{background:#F5F7FA;}
@@ -746,7 +780,9 @@ body.mc-admin .wp-list-table tbody tr:hover .mc-act{color:#6B7280;}
 }
 
 /* ── Pastilles de statut ──────────────────────────────── */
-body.mc-admin .mc-badge{display:inline-block;margin-bottom:3px;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600;line-height:1.6;}
+body.mc-status-col .wp-list-table .column-date br{display:none;}
+body.mc-admin .column-mc_status{width:118px;white-space:nowrap;}
+body.mc-admin .mc-badge{display:inline-block;margin:0;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600;line-height:1.6;}
 body.mc-admin .mc-badge--publish{background:#DCFCE7;color:#166534;}
 body.mc-admin .mc-badge--future{background:#DBEAFE;color:#1E40AF;}
 body.mc-admin .mc-badge--draft{background:#F3F4F6;color:#4B5563;}
