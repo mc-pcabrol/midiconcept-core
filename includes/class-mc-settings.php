@@ -1,7 +1,7 @@
 <?php
 /**
  * MidiConcept Core – Réglages
- * Description: Page Réglages → MidiConcept. La configuration est en base, donc une mise à jour du plugin ne l'écrase pas et aucun fichier n'est à déposer sur le serveur.
+ * Description: Page Réglages → MidiConcept, en onglets. La configuration est en base : une mise à jour du plugin ne l'écrase pas.
  */
 
 defined('ABSPATH') || exit;
@@ -16,15 +16,15 @@ final class MC_Settings
     public static bool $from_code = false;
 
     private const MENUS = [
-        'edit-comments.php'    => 'Commentaires',
-        'tools.php'            => 'Outils',
-        'themes.php'           => 'Apparence',
-        'plugins.php'          => 'Extensions',
-        'options-general.php'  => 'Réglages',
-        'users.php'            => 'Comptes',
-        'edit.php'             => 'Articles',
+        'edit-comments.php'       => 'Commentaires',
+        'tools.php'               => 'Outils',
+        'themes.php'              => 'Apparence',
+        'plugins.php'             => 'Extensions',
+        'options-general.php'     => 'Réglages',
+        'users.php'               => 'Comptes',
+        'edit.php'                => 'Articles',
         'edit.php?post_type=page' => 'Pages',
-        'upload.php'           => 'Médiathèque',
+        'upload.php'              => 'Médiathèque',
     ];
 
     public static function boot(): void
@@ -32,6 +32,20 @@ final class MC_Settings
         add_action('admin_menu', [__CLASS__, 'menu']);
         add_action('admin_init', [__CLASS__, 'register']);
         add_filter('plugin_action_links_' . plugin_basename(MC_CORE_FILE), [__CLASS__, 'action_link']);
+        add_filter('wp_redirect', [__CLASS__, 'keep_tab']);
+    }
+
+    /** @return array<string, string> */
+    public static function tabs(): array
+    {
+        return [
+            'apparence' => 'Apparence',
+            'identite'  => 'Identité',
+            'dashboard' => 'Tableau de bord',
+            'menu'      => 'Menu',
+            'listes'    => 'Listes',
+            'colonnes'  => 'Colonnes',
+        ];
     }
 
     /** Config prête pour MC_Client_Admin::init(), ou null si l'admin client est désactivé. */
@@ -47,7 +61,7 @@ final class MC_Settings
         } elseif ($o['roles_mode'] === 'custom' && $o['roles']) {
             $roles = $o['roles'];
         } else {
-            $roles = null; // tous sauf administrator
+            $roles = null;
         }
 
         return [
@@ -78,6 +92,51 @@ final class MC_Settings
         ];
     }
 
+    /** Applique les colonnes déclarées dans l'onglet Colonnes. */
+    public static function apply_columns(): void
+    {
+        $o = self::get();
+
+        $grouped = [];
+        foreach ($o['columns'] as $col) {
+            $args = ['label' => $col['label']];
+            if ($col['source'] === 'thumbnail') {
+                $args['thumbnail'] = true;
+            } elseif ($col['source'] === 'taxonomy') {
+                $args['taxonomy'] = $col['field'];
+                if (!empty($col['filter'])) {
+                    $args['filter'] = true;
+                }
+            } else {
+                $args[$col['source']] = $col['field'];
+                if ($col['format'] !== '') {
+                    $args['format'] = $col['format'];
+                }
+                if ($col['sort'] !== '') {
+                    $args['sortable'] = $col['sort'];
+                }
+                if (!empty($col['filter'])) {
+                    $args['filter'] = true;
+                }
+            }
+            if ($col['width'] !== '') {
+                $args['width'] = $col['width'];
+            }
+            if ($col['after'] !== '') {
+                $args['after'] = $col['after'];
+            }
+            $grouped[$col['post_type']][$col['key']] = $args;
+        }
+
+        foreach ($grouped as $post_type => $columns) {
+            MC_Admin_Columns::add($post_type, $columns);
+        }
+
+        foreach ($o['columns_hide'] as $row) {
+            MC_Admin_Columns::remove($row['post_type'], $row['keys']);
+        }
+    }
+
     public static function menu(): void
     {
         add_options_page(
@@ -105,145 +164,335 @@ final class MC_Settings
         ]);
     }
 
+    public static function keep_tab(string $location): string
+    {
+        if (empty($_POST['option_page']) || $_POST['option_page'] !== 'mc_core') {
+            return $location;
+        }
+        $tab = sanitize_key((string) ($_POST['mc_tab'] ?? ''));
+        if ($tab !== '' && isset(self::tabs()[$tab])) {
+            $location = add_query_arg('tab', $tab, $location);
+        }
+        return $location;
+    }
+
     public static function render(): void
     {
         if (!current_user_can('manage_options')) {
             return;
         }
 
-        $o = self::get();
-        $roles = self::roles();
+        $o   = self::get();
+        $tab = sanitize_key((string) ($_GET['tab'] ?? 'apparence'));
+        if (!isset(self::tabs()[$tab])) {
+            $tab = 'apparence';
+        }
+        $opt = self::OPTION;
         ?>
-        <div class="wrap">
+        <div class="wrap mc-settings">
             <h1>MidiConcept</h1>
 
             <?php if (self::$from_code) : ?>
                 <div class="notice notice-warning">
-                    <p>Un fichier PHP de ce site appelle déjà <code>MC_Client_Admin::init()</code> (mu-plugin ou thème). Tant que c’est le cas, cette page n’est pas appliquée.</p>
+                    <p>Un fichier PHP configure déjà l’admin client. Les onglets Apparence, Identité, Tableau de bord, Menu et Listes ne sont pas appliqués. L’onglet Colonnes reste actif.</p>
                 </div>
-            <?php else : ?>
-                <p>Ces réglages sont enregistrés dans le site. Une mise à jour de l’extension ne les modifie pas.</p>
             <?php endif; ?>
+
+            <nav class="nav-tab-wrapper" aria-label="Réglages MidiConcept">
+                <?php foreach (self::tabs() as $id => $label) : ?>
+                    <a href="<?php echo esc_url(add_query_arg('tab', $id)); ?>" class="nav-tab<?php echo $tab === $id ? ' nav-tab-active' : ''; ?>" data-tab="<?php echo esc_attr($id); ?>"><?php echo esc_html($label); ?></a>
+                <?php endforeach; ?>
+            </nav>
 
             <form action="options.php" method="post">
                 <?php settings_fields('mc_core'); ?>
+                <input type="hidden" name="mc_tab" id="mc-tab" value="<?php echo esc_attr($tab); ?>">
 
-                <table class="form-table" role="presentation">
-                    <tr>
-                        <th scope="row">Admin client</th>
-                        <td>
-                            <label>
-                                <input type="checkbox" name="<?php echo esc_attr(self::OPTION); ?>[enabled]" value="1" <?php checked($o['enabled']); ?>>
-                                Activer le thème, le tableau de bord et le menu épuré
-                            </label>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Qui est concerné</th>
-                        <td>
-                            <p>
-                                <label><input type="radio" name="<?php echo esc_attr(self::OPTION); ?>[roles_mode]" value="except_admin" <?php checked($o['roles_mode'], 'except_admin'); ?>> Tous les comptes sauf les administrateurs</label><br>
-                                <label><input type="radio" name="<?php echo esc_attr(self::OPTION); ?>[roles_mode]" value="all" <?php checked($o['roles_mode'], 'all'); ?>> Tout le monde, y compris les administrateurs</label><br>
-                                <label><input type="radio" name="<?php echo esc_attr(self::OPTION); ?>[roles_mode]" value="custom" <?php checked($o['roles_mode'], 'custom'); ?>> Seulement ces rôles</label>
-                            </p>
-                            <?php foreach ($roles as $key => $role) : ?>
-                                <label style="display:inline-block;margin:0 16px 6px 0;">
-                                    <input type="checkbox" name="<?php echo esc_attr(self::OPTION); ?>[roles][]" value="<?php echo esc_attr($key); ?>" <?php checked(in_array($key, $o['roles'], true)); ?>>
-                                    <?php echo esc_html(translate_user_role($role['name'])); ?>
-                                </label>
-                            <?php endforeach; ?>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="mc-brand-name">Nom affiché</label></th>
-                        <td><input type="text" class="regular-text" id="mc-brand-name" name="<?php echo esc_attr(self::OPTION); ?>[brand_name]" value="<?php echo esc_attr($o['brand_name']); ?>" placeholder="<?php echo esc_attr(get_bloginfo('name')); ?>"></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="mc-logo">Logo de connexion</label></th>
-                        <td>
-                            <input type="url" class="regular-text" id="mc-logo" name="<?php echo esc_attr(self::OPTION); ?>[logo]" value="<?php echo esc_attr($o['logo']); ?>" placeholder="https://…">
-                            <button type="button" class="button" id="mc-logo-pick">Médiathèque</button>
-                            <p class="description">Image déjà présente dans la médiathèque. Laisser vide pour le logo WordPress.</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Couleurs</th>
-                        <td>
-                            <label>Principale <input type="color" name="<?php echo esc_attr(self::OPTION); ?>[primary]" value="<?php echo esc_attr($o['primary']); ?>"></label>
-                            &nbsp;&nbsp;
-                            <label>Menu <input type="color" name="<?php echo esc_attr(self::OPTION); ?>[menu_bg]" value="<?php echo esc_attr($o['menu_bg']); ?>"></label>
-                            <p>
-                                <label>Largeur du menu
-                                    <input type="number" min="160" max="360" step="10" class="small-text" name="<?php echo esc_attr(self::OPTION); ?>[menu_width]" value="<?php echo esc_attr((string) $o['menu_width']); ?>"> px
-                                </label>
-                            </p>
-                            <label>
-                                <input type="checkbox" name="<?php echo esc_attr(self::OPTION); ?>[adminbar_light]" value="1" <?php checked($o['adminbar'], 'light'); ?>>
-                                Barre du haut blanche
-                            </label>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Listes</th>
-                        <td>
-                            <label>
-                                <input type="checkbox" name="<?php echo esc_attr(self::OPTION); ?>[status_badges]" value="1" <?php checked($o['status_badges']); ?>>
-                                Pastilles de statut (Publié, Brouillon, Programmé…)
-                            </label><br>
-                            <label>
-                                <input type="checkbox" name="<?php echo esc_attr(self::OPTION); ?>[row_icons]" value="1" <?php checked($o['row_icons']); ?>>
-                                Colonne Actions à icônes (voir, modifier, corbeille)
-                            </label>
-                            <p class="description">La barre d’outils des listes est regroupée, et le champ de recherche affiche un texte d’exemple.</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="mc-footer">Pied de page</label></th>
-                        <td>
-                            <textarea class="large-text" rows="2" id="mc-footer" name="<?php echo esc_attr(self::OPTION); ?>[footer]"><?php echo esc_textarea($o['footer']); ?></textarea>
-                            <p class="description">HTML simple autorisé (lien, gras). Visible en bas de l’admin.</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Tableau de bord</th>
-                        <td>
-                            <p><input type="text" class="regular-text" name="<?php echo esc_attr(self::OPTION); ?>[dash_title]" value="<?php echo esc_attr($o['dash_title']); ?>" placeholder="Titre"></p>
-                            <p><input type="text" class="regular-text" name="<?php echo esc_attr(self::OPTION); ?>[dash_intro]" value="<?php echo esc_attr($o['dash_intro']); ?>" placeholder="Phrase d’introduction"></p>
-                            <p><textarea class="large-text" rows="2" name="<?php echo esc_attr(self::OPTION); ?>[help]" placeholder="Texte d’aide, en bas du tableau de bord"><?php echo esc_textarea($o['help']); ?></textarea></p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="mc-shortcuts">Raccourcis</label></th>
-                        <td>
-                            <textarea class="large-text code" rows="6" id="mc-shortcuts" name="<?php echo esc_attr(self::OPTION); ?>[shortcuts_text]"><?php echo esc_textarea(self::shortcuts_text($o['shortcuts'])); ?></textarea>
-                            <p class="description">Une ligne : <code>Libellé | adresse</code>. Adresse d’admin (<code>upload.php</code>, <code>post-new.php?post_type=page</code>), chemin du site (<code>/contact/</code>) ou URL complète.</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">Menus masqués</th>
-                        <td>
-                            <?php foreach (self::MENUS as $slug => $label) : ?>
-                                <label style="display:inline-block;margin:0 16px 6px 0;">
-                                    <input type="checkbox" name="<?php echo esc_attr(self::OPTION); ?>[hide_menus][]" value="<?php echo esc_attr($slug); ?>" <?php checked(in_array($slug, $o['hide_menus'], true)); ?>>
-                                    <?php echo esc_html($label); ?>
-                                </label>
-                            <?php endforeach; ?>
-                            <p>
-                                <input type="text" class="large-text" name="<?php echo esc_attr(self::OPTION); ?>[hide_extra]" value="<?php echo esc_attr($o['hide_extra']); ?>" placeholder="Autres, séparés par des virgules : edit.php?post_type=bien">
-                            </p>
-                            <p class="description">Masquer un menu n’interdit pas l’adresse. Pour bloquer l’accès, retirer la capacité du rôle.</p>
-                            <p>
-                                <label>
-                                    <input type="checkbox" name="<?php echo esc_attr(self::OPTION); ?>[hide_notices]" value="1" <?php checked($o['hide_notices']); ?>>
-                                    Masquer les notifications des autres extensions
-                                </label>
-                            </p>
-                        </td>
-                    </tr>
-                </table>
+                <div class="mc-panel<?php echo $tab === 'apparence' ? ' is-active' : ''; ?>" data-tab="apparence">
+                    <section class="mc-card">
+                        <h2>Activation</h2>
+                        <p class="mc-lead">Qui voit l’admin modernisé. Les administrateurs gardent l’admin WordPress classique, sauf si vous les incluez.</p>
+                        <table class="form-table" role="presentation">
+                            <tr>
+                                <th scope="row">Admin client</th>
+                                <td>
+                                    <label class="mc-choice">
+                                        <input type="checkbox" name="<?php echo esc_attr($opt); ?>[enabled]" value="1" <?php checked($o['enabled']); ?>>
+                                        Activer le thème, le tableau de bord et le menu épuré
+                                    </label>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Comptes concernés</th>
+                                <td>
+                                    <label class="mc-choice"><input type="radio" name="<?php echo esc_attr($opt); ?>[roles_mode]" value="except_admin" <?php checked($o['roles_mode'], 'except_admin'); ?>> Tous les comptes sauf les administrateurs</label>
+                                    <label class="mc-choice"><input type="radio" name="<?php echo esc_attr($opt); ?>[roles_mode]" value="all" <?php checked($o['roles_mode'], 'all'); ?>> Tout le monde, y compris les administrateurs</label>
+                                    <label class="mc-choice"><input type="radio" name="<?php echo esc_attr($opt); ?>[roles_mode]" value="custom" <?php checked($o['roles_mode'], 'custom'); ?>> Seulement ces rôles</label>
+                                    <div class="mc-roles">
+                                        <?php foreach (self::roles() as $key => $role) : ?>
+                                            <label>
+                                                <input type="checkbox" name="<?php echo esc_attr($opt); ?>[roles][]" value="<?php echo esc_attr($key); ?>" <?php checked(in_array($key, $o['roles'], true)); ?>>
+                                                <?php echo esc_html(translate_user_role($role['name'])); ?>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </td>
+                            </tr>
+                        </table>
+                    </section>
+
+                    <section class="mc-card">
+                        <h2>Couleurs et menu</h2>
+                        <p class="mc-lead">La couleur principale sert aux boutons, au menu actif et aux liens.</p>
+                        <table class="form-table" role="presentation">
+                            <tr>
+                                <th scope="row">Couleur principale</th>
+                                <td><input type="color" name="<?php echo esc_attr($opt); ?>[primary]" value="<?php echo esc_attr($o['primary']); ?>"></td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Fond du menu</th>
+                                <td><input type="color" name="<?php echo esc_attr($opt); ?>[menu_bg]" value="<?php echo esc_attr($o['menu_bg']); ?>"></td>
+                            </tr>
+                            <tr>
+                                <th scope="row"><label for="mc-menu-width">Largeur du menu</label></th>
+                                <td>
+                                    <input type="number" min="160" max="360" step="10" class="small-text" id="mc-menu-width" name="<?php echo esc_attr($opt); ?>[menu_width]" value="<?php echo esc_attr((string) $o['menu_width']); ?>"> px
+                                    <p class="description">Entre 160 et 360. 240 par défaut, sur les écrans larges.</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Barre du haut</th>
+                                <td>
+                                    <label class="mc-choice">
+                                        <input type="checkbox" name="<?php echo esc_attr($opt); ?>[adminbar_light]" value="1" <?php checked($o['adminbar'], 'light'); ?>>
+                                        Barre blanche à la place de la barre sombre
+                                    </label>
+                                </td>
+                            </tr>
+                        </table>
+                    </section>
+                </div>
+
+                <div class="mc-panel<?php echo $tab === 'identite' ? ' is-active' : ''; ?>" data-tab="identite">
+                    <section class="mc-card">
+                        <h2>Marque</h2>
+                        <p class="mc-lead">Ce que le client voit sur la page de connexion et en bas de l’admin.</p>
+                        <table class="form-table" role="presentation">
+                            <tr>
+                                <th scope="row"><label for="mc-brand-name">Nom affiché</label></th>
+                                <td>
+                                    <input type="text" class="regular-text" id="mc-brand-name" name="<?php echo esc_attr($opt); ?>[brand_name]" value="<?php echo esc_attr($o['brand_name']); ?>" placeholder="<?php echo esc_attr(get_bloginfo('name')); ?>">
+                                    <p class="description">Laisser vide pour utiliser le nom du site.</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row"><label for="mc-logo">Logo de connexion</label></th>
+                                <td>
+                                    <input type="url" class="regular-text" id="mc-logo" name="<?php echo esc_attr($opt); ?>[logo]" value="<?php echo esc_attr($o['logo']); ?>" placeholder="https://…">
+                                    <button type="button" class="button" id="mc-logo-pick">Médiathèque</button>
+                                    <p class="description">Image déjà présente dans la médiathèque. Vide : le logo WordPress.</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row"><label for="mc-footer">Pied de page</label></th>
+                                <td>
+                                    <textarea class="large-text" rows="3" id="mc-footer" name="<?php echo esc_attr($opt); ?>[footer]"><?php echo esc_textarea($o['footer']); ?></textarea>
+                                    <p class="description">HTML simple autorisé (lien, gras). Visible en bas de chaque écran.</p>
+                                </td>
+                            </tr>
+                        </table>
+                    </section>
+                </div>
+
+                <div class="mc-panel<?php echo $tab === 'dashboard' ? ' is-active' : ''; ?>" data-tab="dashboard">
+                    <section class="mc-card">
+                        <h2>Accueil</h2>
+                        <p class="mc-lead">Le tableau de bord des comptes concernés remplace les widgets WordPress.</p>
+                        <table class="form-table" role="presentation">
+                            <tr>
+                                <th scope="row"><label for="mc-dash-title">Titre</label></th>
+                                <td><input type="text" class="regular-text" id="mc-dash-title" name="<?php echo esc_attr($opt); ?>[dash_title]" value="<?php echo esc_attr($o['dash_title']); ?>"></td>
+                            </tr>
+                            <tr>
+                                <th scope="row"><label for="mc-dash-intro">Introduction</label></th>
+                                <td><input type="text" class="regular-text" id="mc-dash-intro" name="<?php echo esc_attr($opt); ?>[dash_intro]" value="<?php echo esc_attr($o['dash_intro']); ?>"></td>
+                            </tr>
+                            <tr>
+                                <th scope="row"><label for="mc-dash-help">Aide</label></th>
+                                <td>
+                                    <textarea class="large-text" rows="3" id="mc-dash-help" name="<?php echo esc_attr($opt); ?>[help]"><?php echo esc_textarea($o['help']); ?></textarea>
+                                    <p class="description">Phrase en bas du tableau de bord. HTML simple autorisé.</p>
+                                </td>
+                            </tr>
+                        </table>
+                    </section>
+                    <section class="mc-card">
+                        <h2>Raccourcis</h2>
+                        <p class="mc-lead">Une ligne par tuile : <code>Libellé | adresse</code>.</p>
+                        <table class="form-table" role="presentation">
+                            <tr>
+                                <th scope="row"><label for="mc-shortcuts">Tuiles</label></th>
+                                <td>
+                                    <textarea class="large-text code" rows="8" id="mc-shortcuts" name="<?php echo esc_attr($opt); ?>[shortcuts_text]"><?php echo esc_textarea(self::shortcuts_text($o['shortcuts'])); ?></textarea>
+                                    <p class="description">Adresse d’admin (<code>upload.php</code>, <code>post-new.php?post_type=page</code>), chemin du site (<code>/contact/</code>) ou URL complète.</p>
+                                </td>
+                            </tr>
+                        </table>
+                    </section>
+                </div>
+
+                <div class="mc-panel<?php echo $tab === 'menu' ? ' is-active' : ''; ?>" data-tab="menu">
+                    <section class="mc-card">
+                        <h2>Entrées masquées</h2>
+                        <p class="mc-lead">Masquer un menu ne bloque pas son adresse. Pour interdire l’accès, retirez la capacité du rôle.</p>
+                        <table class="form-table" role="presentation">
+                            <tr>
+                                <th scope="row">Menus</th>
+                                <td>
+                                    <div class="mc-roles">
+                                        <?php foreach (self::MENUS as $slug => $label) : ?>
+                                            <label>
+                                                <input type="checkbox" name="<?php echo esc_attr($opt); ?>[hide_menus][]" value="<?php echo esc_attr($slug); ?>" <?php checked(in_array($slug, $o['hide_menus'], true)); ?>>
+                                                <?php echo esc_html($label); ?>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row"><label for="mc-hide-extra">Autres menus</label></th>
+                                <td>
+                                    <input type="text" class="large-text" id="mc-hide-extra" name="<?php echo esc_attr($opt); ?>[hide_extra]" value="<?php echo esc_attr($o['hide_extra']); ?>" placeholder="edit.php?post_type=bien">
+                                    <p class="description">Slugs séparés par des virgules, par exemple un type de contenu.</p>
+                                </td>
+                            </tr>
+                        </table>
+                    </section>
+                    <section class="mc-card">
+                        <h2>Notifications</h2>
+                        <table class="form-table" role="presentation">
+                            <tr>
+                                <th scope="row">Autres extensions</th>
+                                <td>
+                                    <label class="mc-choice">
+                                        <input type="checkbox" name="<?php echo esc_attr($opt); ?>[hide_notices]" value="1" <?php checked($o['hide_notices']); ?>>
+                                        Masquer les notifications des autres extensions
+                                    </label>
+                                </td>
+                            </tr>
+                        </table>
+                    </section>
+                </div>
+
+                <div class="mc-panel<?php echo $tab === 'listes' ? ' is-active' : ''; ?>" data-tab="listes">
+                    <section class="mc-card">
+                        <h2>Listes d’articles</h2>
+                        <p class="mc-lead">La barre d’outils est regroupée et le champ de recherche affiche un texte d’exemple.</p>
+                        <table class="form-table" role="presentation">
+                            <tr>
+                                <th scope="row">État</th>
+                                <td>
+                                    <label class="mc-choice">
+                                        <input type="checkbox" name="<?php echo esc_attr($opt); ?>[status_badges]" value="1" <?php checked($o['status_badges']); ?>>
+                                        Colonne État (Publié, Brouillon, Programmé…)
+                                    </label>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Actions</th>
+                                <td>
+                                    <label class="mc-choice">
+                                        <input type="checkbox" name="<?php echo esc_attr($opt); ?>[row_icons]" value="1" <?php checked($o['row_icons']); ?>>
+                                        Colonne d’icônes : voir, modifier, modification rapide, corbeille
+                                    </label>
+                                </td>
+                            </tr>
+                        </table>
+                    </section>
+                </div>
+
+                <div class="mc-panel<?php echo $tab === 'colonnes' ? ' is-active' : ''; ?>" data-tab="colonnes">
+                    <section class="mc-card">
+                        <h2>Colonnes ajoutées</h2>
+                        <p class="mc-lead">Une carte par colonne, sur le type de contenu choisi. Miniature, champ ACF, méta ou taxonomie. Une fonction PHP sur mesure reste possible dans un mu-plugin.</p>
+                        <div id="mc-columns">
+                            <?php foreach ($o['columns'] as $i => $col) {
+                                self::column_fields((string) $i, $col);
+                            } ?>
+                        </div>
+                        <p><button type="button" class="button" id="mc-col-add">Ajouter une colonne</button></p>
+                    </section>
+                    <section class="mc-card">
+                        <h2>Colonnes à masquer</h2>
+                        <p class="mc-lead">Une ligne : <code>type | slug, slug</code>. Exemple : <code>formation | author, comments</code>.</p>
+                        <textarea class="large-text code" rows="5" name="<?php echo esc_attr($opt); ?>[columns_hide_text]"><?php echo esc_textarea(self::hide_text($o['columns_hide'])); ?></textarea>
+                    </section>
+                </div>
 
                 <?php submit_button('Enregistrer'); ?>
+                <p class="description mc-save-note">Tous les onglets sont enregistrés ensemble.</p>
             </form>
+
+            <template id="mc-col-tpl"><?php self::column_fields('__i__', self::blank_column()); ?></template>
+        </div>
+        <?php
+        self::print_style();
+    }
+
+    /** @param array<string, mixed> $col */
+    private static function column_fields(string $index, array $col): void
+    {
+        $opt = self::OPTION;
+        $base = $opt . '[columns][' . $index . ']';
+        ?>
+        <div class="mc-col">
+            <div class="mc-col-grid">
+                <label>Type de contenu
+                    <select name="<?php echo esc_attr($base); ?>[post_type]">
+                        <?php foreach (self::post_types() as $name => $type) : ?>
+                            <option value="<?php echo esc_attr($name); ?>" <?php selected($col['post_type'], $name); ?>><?php echo esc_html($type->labels->name); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label>Titre de la colonne
+                    <input type="text" name="<?php echo esc_attr($base); ?>[label]" value="<?php echo esc_attr($col['label']); ?>" placeholder="Prix">
+                </label>
+                <label>Source
+                    <select name="<?php echo esc_attr($base); ?>[source]">
+                        <?php foreach (['thumbnail' => 'Miniature', 'acf' => 'Champ ACF', 'meta' => 'Méta', 'taxonomy' => 'Taxonomie'] as $value => $label) : ?>
+                            <option value="<?php echo esc_attr($value); ?>" <?php selected($col['source'], $value); ?>><?php echo esc_html($label); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label>Champ, méta ou taxonomie
+                    <input type="text" name="<?php echo esc_attr($base); ?>[field]" value="<?php echo esc_attr($col['field']); ?>" placeholder="prix">
+                </label>
+                <label>Format
+                    <select name="<?php echo esc_attr($base); ?>[format]">
+                        <?php foreach (['' => 'Texte', 'price' => 'Prix', 'number' => 'Nombre', 'date' => 'Date', 'bool' => 'Oui / Non', 'image' => 'Image'] as $value => $label) : ?>
+                            <option value="<?php echo esc_attr($value); ?>" <?php selected($col['format'], $value); ?>><?php echo esc_html($label); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label>Tri
+                    <select name="<?php echo esc_attr($base); ?>[sort]">
+                        <?php foreach (['' => 'Aucun', 'alpha' => 'Alphabétique', 'numeric' => 'Numérique', 'date' => 'Date'] as $value => $label) : ?>
+                            <option value="<?php echo esc_attr($value); ?>" <?php selected($col['sort'], $value); ?>><?php echo esc_html($label); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label>Largeur
+                    <input type="text" name="<?php echo esc_attr($base); ?>[width]" value="<?php echo esc_attr($col['width']); ?>" placeholder="80px">
+                </label>
+                <label>Après la colonne
+                    <input type="text" name="<?php echo esc_attr($base); ?>[after]" value="<?php echo esc_attr($col['after']); ?>" placeholder="title">
+                </label>
+                <label class="mc-col-check">
+                    <input type="checkbox" name="<?php echo esc_attr($base); ?>[filter]" value="1" <?php checked(!empty($col['filter'])); ?>>
+                    Proposer un filtre
+                </label>
+            </div>
+            <p class="mc-col-actions"><button type="button" class="button-link-delete mc-col-remove">Retirer cette colonne</button></p>
         </div>
         <?php
     }
@@ -273,6 +522,41 @@ jQuery(function ($) {
         });
         frame.open();
     });
+
+    var tabs = document.querySelectorAll('.mc-settings .nav-tab');
+    var panels = document.querySelectorAll('.mc-settings .mc-panel');
+    var tabInput = document.getElementById('mc-tab');
+    function show(id) {
+        tabs.forEach(function (tab) {
+            tab.classList.toggle('nav-tab-active', tab.getAttribute('data-tab') === id);
+        });
+        panels.forEach(function (panel) {
+            panel.classList.toggle('is-active', panel.getAttribute('data-tab') === id);
+        });
+        if (tabInput) tabInput.value = id;
+    }
+    tabs.forEach(function (tab) {
+        tab.addEventListener('click', function (e) {
+            e.preventDefault();
+            show(tab.getAttribute('data-tab'));
+        });
+    });
+
+    var list = document.getElementById('mc-columns');
+    var tpl = document.getElementById('mc-col-tpl');
+    $('#mc-col-add').on('click', function () {
+        if (!list || !tpl) return;
+        list.insertAdjacentHTML('beforeend', tpl.innerHTML.replace(/__i__/g, String(Date.now())));
+    });
+    if (list) {
+        list.addEventListener('click', function (e) {
+            var btn = e.target.closest('.mc-col-remove');
+            if (!btn) return;
+            e.preventDefault();
+            var row = btn.closest('.mc-col');
+            if (row) row.remove();
+        });
+    }
 });
 JS
         );
@@ -311,26 +595,187 @@ JS
         $hide_extra = array_values(array_diff($hide, $known_menus));
 
         return [
-            'enabled'      => empty($input['enabled']) ? 0 : 1,
-            'roles_mode'   => $mode,
-            'roles'        => $roles,
-            'brand_name'   => sanitize_text_field((string) ($input['brand_name'] ?? '')),
-            'logo'         => esc_url_raw((string) ($input['logo'] ?? '')),
-            'primary'      => self::hex((string) ($input['primary'] ?? ''), $base['primary']),
-            'menu_bg'      => self::hex((string) ($input['menu_bg'] ?? ''), $base['menu_bg']),
-            'menu_width'   => self::menu_width($input['menu_width'] ?? $base['menu_width']),
-            'adminbar'     => empty($input['adminbar_light']) ? 'dark' : 'light',
-            'footer'       => wp_kses_post((string) ($input['footer'] ?? '')),
-            'dash_title'   => sanitize_text_field((string) ($input['dash_title'] ?? '')),
-            'dash_intro'   => sanitize_text_field((string) ($input['dash_intro'] ?? '')),
-            'help'         => wp_kses_post((string) ($input['help'] ?? '')),
-            'shortcuts'    => self::parse_shortcuts((string) ($input['shortcuts_text'] ?? '')),
-            'hide_menus'   => array_merge($hide_known, $hide_extra),
-            'hide_extra'   => implode(', ', $hide_extra),
-            'hide_notices'  => empty($input['hide_notices']) ? 0 : 1,
-            'status_badges' => empty($input['status_badges']) ? 0 : 1,
-            'row_icons'     => empty($input['row_icons']) ? 0 : 1,
+            'enabled'        => empty($input['enabled']) ? 0 : 1,
+            'roles_mode'     => $mode,
+            'roles'          => $roles,
+            'brand_name'     => sanitize_text_field((string) ($input['brand_name'] ?? '')),
+            'logo'           => esc_url_raw((string) ($input['logo'] ?? '')),
+            'primary'        => self::hex((string) ($input['primary'] ?? ''), $base['primary']),
+            'menu_bg'        => self::hex((string) ($input['menu_bg'] ?? ''), $base['menu_bg']),
+            'menu_width'     => self::menu_width($input['menu_width'] ?? $base['menu_width']),
+            'adminbar'       => empty($input['adminbar_light']) ? 'dark' : 'light',
+            'footer'         => wp_kses_post((string) ($input['footer'] ?? '')),
+            'dash_title'     => sanitize_text_field((string) ($input['dash_title'] ?? '')),
+            'dash_intro'     => sanitize_text_field((string) ($input['dash_intro'] ?? '')),
+            'help'           => wp_kses_post((string) ($input['help'] ?? '')),
+            'shortcuts'      => self::parse_shortcuts((string) ($input['shortcuts_text'] ?? '')),
+            'hide_menus'     => array_merge($hide_known, $hide_extra),
+            'hide_extra'     => implode(', ', $hide_extra),
+            'hide_notices'   => empty($input['hide_notices']) ? 0 : 1,
+            'status_badges'  => empty($input['status_badges']) ? 0 : 1,
+            'row_icons'      => empty($input['row_icons']) ? 0 : 1,
+            'columns'        => self::sanitize_columns($input['columns'] ?? []),
+            'columns_hide'   => self::sanitize_hide((string) ($input['columns_hide_text'] ?? '')),
         ];
+    }
+
+    private static function print_style(): void
+    {
+        echo '<style>
+.mc-settings .nav-tab-wrapper{margin:16px 0 0;}
+.mc-settings .mc-panel{display:none;margin-top:22px;}
+.mc-settings .mc-panel.is-active{display:block;}
+.mc-card{background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:6px 28px 18px;margin:0 0 18px;max-width:920px;box-shadow:0 1px 2px rgba(16,24,40,.04);}
+.mc-card h2{margin:22px 0 6px;font-size:16px;font-weight:600;}
+.mc-lead{margin:0 0 8px;color:#646970;max-width:62em;}
+.mc-card .form-table th{width:220px;padding-top:22px;padding-bottom:22px;font-weight:600;}
+.mc-card .form-table td{padding-top:18px;padding-bottom:18px;}
+.mc-choice{display:block;margin:0 0 10px;}
+.mc-roles{display:flex;flex-wrap:wrap;gap:10px 22px;margin-top:14px;}
+.mc-roles label{display:inline-flex;align-items:center;gap:6px;}
+.mc-col{background:#F9FAFB;border:1px solid #E5E7EB;border-radius:10px;padding:16px 18px 4px;margin:0 0 14px;}
+.mc-col-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 22px;}
+.mc-col-grid label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600;color:#374151;}
+.mc-col-grid input,.mc-col-grid select{font-weight:400;font-size:14px;max-width:100%;}
+.mc-col-check{flex-direction:row !important;align-items:center;align-self:end;padding-bottom:6px;}
+.mc-col-actions{margin:12px 0 10px;}
+.mc-save-note{margin-top:-4px;}
+@media (max-width:782px){
+  .mc-col-grid{grid-template-columns:1fr;}
+  .mc-card{padding-left:16px;padding-right:16px;}
+}
+</style>';
+    }
+
+    /** @return array<string, WP_Post_Type> */
+    private static function post_types(): array
+    {
+        $types = get_post_types(['show_ui' => true], 'objects');
+        unset($types['attachment']);
+        return $types;
+    }
+
+    /** @return array<string, string> */
+    private static function blank_column(): array
+    {
+        $types = array_keys(self::post_types());
+        return [
+            'post_type' => $types[0] ?? 'post',
+            'key'       => '',
+            'label'     => '',
+            'source'    => 'acf',
+            'field'     => '',
+            'format'    => '',
+            'sort'      => '',
+            'width'     => '',
+            'after'     => '',
+            'filter'    => 0,
+        ];
+    }
+
+    /** @param mixed $rows */
+    private static function sanitize_columns($rows): array
+    {
+        if (!is_array($rows)) {
+            return [];
+        }
+        $types = array_keys(self::post_types());
+        $sources = ['thumbnail', 'acf', 'meta', 'taxonomy'];
+        $formats = ['', 'price', 'number', 'date', 'bool', 'image'];
+        $sorts = ['', 'alpha', 'numeric', 'date'];
+        $out = [];
+        $used = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $post_type = sanitize_key((string) ($row['post_type'] ?? ''));
+            $source = (string) ($row['source'] ?? '');
+            $field = sanitize_key((string) ($row['field'] ?? ''));
+            $label = sanitize_text_field((string) ($row['label'] ?? ''));
+            if (!in_array($post_type, $types, true) || !in_array($source, $sources, true)) {
+                continue;
+            }
+            if ($source !== 'thumbnail' && $field === '') {
+                continue;
+            }
+            if ($label === '' && $source === 'thumbnail') {
+                $label = 'Image';
+            }
+
+            $key = $source === 'thumbnail' ? 'thumbnail' : $field;
+            if ($key === '') {
+                $key = sanitize_key($label);
+            }
+            $base_key = $key !== '' ? $key : 'col';
+            $n = 2;
+            while (isset($used[$post_type][$key])) {
+                $key = $base_key . '_' . $n;
+                $n++;
+            }
+            $used[$post_type][$key] = true;
+
+            $format = (string) ($row['format'] ?? '');
+            $sort = (string) ($row['sort'] ?? '');
+            $width = strtolower(trim((string) ($row['width'] ?? '')));
+            $after = sanitize_key((string) ($row['after'] ?? ''));
+
+            $out[] = [
+                'post_type' => $post_type,
+                'key'       => $key,
+                'label'     => $label,
+                'source'    => $source,
+                'field'     => $field,
+                'format'    => in_array($format, $formats, true) ? $format : '',
+                'sort'      => in_array($sort, $sorts, true) ? $sort : '',
+                'width'     => preg_match('/^\d{1,4}(px|%)$/', $width) ? $width : '',
+                'after'     => $after,
+                'filter'    => empty($row['filter']) ? 0 : 1,
+            ];
+        }
+        return $out;
+    }
+
+    /** @param array<int, array<string, mixed>> $rows */
+    private static function hide_text(array $rows): string
+    {
+        $lines = [];
+        foreach ($rows as $row) {
+            if (!empty($row['post_type']) && !empty($row['keys'])) {
+                $lines[] = $row['post_type'] . ' | ' . implode(', ', $row['keys']);
+            }
+        }
+        return implode("\n", $lines);
+    }
+
+    /** @return array<int, array{post_type: string, keys: string[]}> */
+    private static function sanitize_hide(string $text): array
+    {
+        $types = array_keys(self::post_types());
+        $out = [];
+        foreach (preg_split('/\r\n|\r|\n/', $text) ?: [] as $line) {
+            $line = trim($line);
+            if ($line === '' || strpos($line, '|') === false) {
+                continue;
+            }
+            [$post_type, $keys] = array_map('trim', explode('|', $line, 2));
+            $post_type = sanitize_key($post_type);
+            if (!in_array($post_type, $types, true)) {
+                continue;
+            }
+            $clean = [];
+            foreach (preg_split('/\s*,\s*/', $keys) ?: [] as $key) {
+                $key = sanitize_key($key);
+                if ($key !== '') {
+                    $clean[] = $key;
+                }
+            }
+            if ($clean) {
+                $out[] = ['post_type' => $post_type, 'keys' => array_values(array_unique($clean))];
+            }
+        }
+        return $out;
     }
 
     private static function roles(): array
@@ -360,29 +805,31 @@ JS
     private static function defaults(): array
     {
         return [
-            'enabled'      => 1,
-            'roles_mode'   => 'except_admin',
-            'roles'        => [],
-            'brand_name'   => '',
-            'logo'         => '',
-            'primary'      => '#2F6FED',
-            'menu_bg'      => '#111827',
-            'menu_width'   => 240,
-            'adminbar'     => 'dark',
-            'footer'       => 'Site réalisé par <a href="https://www.midiconcept.fr" target="_blank">Midiconcept</a>',
-            'dash_title'   => 'Bienvenue',
-            'dash_intro'   => 'Que souhaitez-vous faire aujourd’hui ?',
-            'help'         => '',
-            'shortcuts'    => [
+            'enabled'       => 1,
+            'roles_mode'    => 'except_admin',
+            'roles'         => [],
+            'brand_name'    => '',
+            'logo'          => '',
+            'primary'       => '#2F6FED',
+            'menu_bg'       => '#111827',
+            'menu_width'    => 240,
+            'adminbar'      => 'dark',
+            'footer'        => 'Site réalisé par <a href="https://www.midiconcept.fr" target="_blank">Midiconcept</a>',
+            'dash_title'    => 'Bienvenue',
+            'dash_intro'    => 'Que souhaitez-vous faire aujourd’hui ?',
+            'help'          => '',
+            'shortcuts'     => [
                 ['label' => 'Toutes les pages', 'url' => 'edit.php?post_type=page', 'icon' => 'dashicons-admin-page'],
                 ['label' => 'Médiathèque', 'url' => 'upload.php', 'icon' => 'dashicons-format-gallery'],
                 ['label' => 'Voir le site', 'url' => '/', 'icon' => 'dashicons-external'],
             ],
-            'hide_menus'   => ['edit-comments.php', 'tools.php'],
-            'hide_extra'   => '',
+            'hide_menus'    => ['edit-comments.php', 'tools.php'],
+            'hide_extra'    => '',
             'hide_notices'  => 1,
             'status_badges' => 1,
             'row_icons'     => 1,
+            'columns'       => [],
+            'columns_hide'  => [],
         ];
     }
 

@@ -69,9 +69,9 @@ Les sites la voient lors de leur prochaine vérification (environ toutes les 12 
 
 ## 5. Configurer un site
 
-Le cas courant : *Réglages → MidiConcept*.
+Le cas courant : *Réglages → MidiConcept*. La page est en onglets (Apparence, Identité, Tableau de bord, Menu, Listes, Colonnes).
 
-Pour les colonnes d’admin, ou une config que l’écran ne couvre pas, un mu-plugin (ou le `functions.php` du thème) prend le pas sur la page de réglages :
+L’onglet Colonnes couvre miniature, champ ACF, méta et taxonomie. Pour une colonne calculée par une fonction PHP, un mu-plugin (ou le `functions.php` du thème) reste possible :
 
 ```php
 add_action('midiconcept_core_init', function () {
