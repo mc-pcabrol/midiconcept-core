@@ -71,7 +71,7 @@ Les sites la voient lors de leur prochaine vérification (environ toutes les 12 
 
 Le cas courant : *Réglages → MidiConcept*. La page est en onglets (Apparence, Identité, Tableau de bord, Menu, Listes, Contenu, Colonnes).
 
-L’onglet Menu ordonne, renomme et masque les entrées. L’onglet Listes ajoute l’identifiant et les filtres de taxonomies. L’onglet Contenu couvre la duplication, les publications programmées manquées et le remplacement d’un média. Dans la barre du haut, un administrateur peut voir l’admin comme un autre rôle, sans perdre ses droits.
+L’onglet Apparence accepte un CSS additionnel, collé sur toutes les pages de l’admin. L’onglet Menu ordonne, renomme et masque les entrées. L’onglet Listes ajoute l’identifiant et les filtres de taxonomies. L’onglet Contenu couvre la duplication, les publications programmées manquées et le remplacement d’un média. Dans la barre du haut, un administrateur peut voir l’admin comme un autre rôle, sans perdre ses droits.
 
 L’onglet Colonnes couvre miniature, champ ACF, méta et taxonomie. Pour une colonne calculée par une fonction PHP, un mu-plugin (ou le `functions.php` du thème) reste possible :
 

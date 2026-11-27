@@ -37,6 +37,7 @@ final class MC_Settings
         add_action('admin_init', [__CLASS__, 'register']);
         add_filter('plugin_action_links_' . plugin_basename(MC_CORE_FILE), [__CLASS__, 'action_link']);
         add_filter('wp_redirect', [__CLASS__, 'keep_tab']);
+        add_action('admin_head', [__CLASS__, 'print_admin_css'], 99);
     }
 
     /** @return array<string, string> */
@@ -260,7 +261,7 @@ final class MC_Settings
 
             <?php if (self::$from_code) : ?>
                 <div class="notice notice-warning">
-                    <p>Un fichier PHP configure déjà l’admin client (apparence, identité, tableau de bord, menu, pastilles). Les onglets Colonnes et Contenu restent actifs, ainsi que l’identifiant et les filtres de taxonomie.</p>
+                    <p>Un fichier PHP configure déjà l’admin client (apparence, identité, tableau de bord, menu, pastilles). Les onglets Colonnes et Contenu restent actifs, ainsi que l’identifiant, les filtres de taxonomie et le CSS additionnel.</p>
                 </div>
             <?php endif; ?>
 
@@ -333,6 +334,20 @@ final class MC_Settings
                                         <input type="checkbox" name="<?php echo esc_attr($opt); ?>[adminbar_light]" value="1" <?php checked($o['adminbar'], 'light'); ?>>
                                         Barre blanche à la place de la barre sombre
                                     </label>
+                                </td>
+                            </tr>
+                        </table>
+                    </section>
+
+                    <section class="mc-card">
+                        <h2>CSS additionnel</h2>
+                        <p class="mc-lead">Collé sur toutes les pages de l’admin, après les feuilles des extensions. Il s’applique à tout le monde, y compris les administrateurs.</p>
+                        <table class="form-table" role="presentation">
+                            <tr>
+                                <th scope="row"><label for="mc-admin-css">Règles</label></th>
+                                <td>
+                                    <textarea class="large-text code" rows="10" id="mc-admin-css" name="<?php echo esc_attr($opt); ?>[admin_css]" placeholder=".wp-list-table td .rank-math-column-display {&#10;    display: inline-flex;&#10;}"><?php echo esc_textarea((string) $o['admin_css']); ?></textarea>
+                                    <p class="description">CSS seul, sans balise <code>&lt;style&gt;</code>.</p>
                                 </td>
                             </tr>
                         </table>
@@ -874,6 +889,7 @@ JS
             'duplicate'      => empty($input['duplicate']) ? 0 : 1,
             'missed_schedule'=> empty($input['missed_schedule']) ? 0 : 1,
             'media_replace'  => empty($input['media_replace']) ? 0 : 1,
+            'admin_css'      => self::sanitize_css((string) ($input['admin_css'] ?? '')),
             'columns'        => self::sanitize_columns($input['columns'] ?? []),
             'columns_hide'   => self::sanitize_hide((string) ($input['columns_hide_text'] ?? '')),
         ];
@@ -1104,9 +1120,30 @@ JS
             'duplicate'       => 1,
             'missed_schedule' => 1,
             'media_replace'   => 1,
+            'admin_css'       => '',
             'columns'       => [],
             'columns_hide'  => [],
         ];
+    }
+
+    public static function print_admin_css(): void
+    {
+        $css = self::get()['admin_css'] ?? '';
+        if (!is_string($css) || trim($css) === '') {
+            return;
+        }
+        echo '<style id="mc-admin-custom">' . $css . "</style>\n"; // phpcs:ignore -- CSS déjà filtré
+    }
+
+    private static function sanitize_css(string $css): string
+    {
+        $css = str_replace("\0", '', $css);
+        $css = wp_strip_all_tags($css);
+        $css = preg_replace('/<\/\s*style/i', '', $css) ?? $css;
+        if (strlen($css) > 50000) {
+            $css = substr($css, 0, 50000);
+        }
+        return trim($css);
     }
 
     private static function shortcuts_text(array $shortcuts): string

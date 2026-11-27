@@ -3,7 +3,7 @@
  * Plugin Name:       MidiConcept Core
  * Plugin URI:        https://www.midiconcept.fr
  * Description:       Boîte à outils MidiConcept pour les sites clients : admin client, colonnes, duplication et médias. Mises à jour depuis GitHub.
- * Version:           1.4.1
+ * Version:           1.4.2
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Midiconcept
@@ -14,7 +14,7 @@
 
 defined('ABSPATH') || exit;
 
-define('MC_CORE_VERSION', '1.4.1');
+define('MC_CORE_VERSION', '1.4.2');
 define('MC_CORE_FILE', __FILE__);
 define('MC_CORE_DIR', plugin_dir_path(__FILE__));
 
@@ -44,7 +44,7 @@ add_action('admin_enqueue_scripts', ['MC_Settings', 'assets']);
  * Configuration du site.
  * 1. Réglages → MidiConcept, en onglets (aucun fichier à déposer).
  * 2. Un mu-plugin ou le thème peut prendre le pas sur l'admin client.
- *    Les colonnes et les outils (duplication, médias, listes) s'appliquent quand même.
+ *    Les colonnes, les outils (duplication, médias, listes) et le CSS additionnel s'appliquent quand même.
  *    Une fonction PHP reste possible pour une colonne sur mesure :
  *
  * add_action('midiconcept_core_init', function () {
