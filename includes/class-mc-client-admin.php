@@ -219,12 +219,7 @@ final class MC_Client_Admin
         }
 
         if (self::$cfg['row_icons']) {
-            $add = static function (array $cols): array {
-                $cols['mc_actions'] = 'Actions';
-                return $cols;
-            };
-            add_filter('manage_posts_columns', $add, 999);
-            add_filter('manage_pages_columns', $add, 999);
+            add_action('current_screen', [__CLASS__, 'pin_actions_column']);
             add_action('manage_posts_custom_column', [__CLASS__, 'actions_cell'], 10, 2);
             add_action('manage_pages_custom_column', [__CLASS__, 'actions_cell'], 10, 2);
             add_filter('post_row_actions', [__CLASS__, 'collect_row_actions'], PHP_INT_MAX, 2);
@@ -622,6 +617,26 @@ HTML;
             esc_attr($mod),
             esc_html($label)
         );
+    }
+
+    /**
+     * Place la colonne Actions après toutes les autres, y compris celles
+     * ajoutées par Rank Math sur manage_{écran}_columns.
+     */
+    public static function pin_actions_column($screen): void
+    {
+        if (!$screen instanceof WP_Screen || $screen->base !== 'edit' || $screen->post_type === 'attachment') {
+            return;
+        }
+        add_filter('manage_' . $screen->id . '_columns', [__CLASS__, 'actions_column_last'], PHP_INT_MAX);
+    }
+
+    public static function actions_column_last(array $cols): array
+    {
+        $label = $cols['mc_actions'] ?? 'Actions';
+        unset($cols['mc_actions']);
+        $cols['mc_actions'] = $label;
+        return $cols;
     }
 
     /**
@@ -1200,12 +1215,12 @@ body.mc-admin:not(.block-editor-page) .plugins .row-actions a:hover{color:var(--
 body.mc-admin:not(.block-editor-page) .plugins .row-actions .delete a{color:#B42318;}
 
 /* ── Colonne Actions à icônes ─────────────────────────── */
-/* Le tableau WordPress est en largeur fixe : un width:1% écrase la colonne
-   (« Acti », une seule icône visible). En largeur automatique, 1% + nowrap
-   la cale sur les icônes, et le titre prend le reste. */
+/* Largeur automatique : la colonne se cale sur les icônes sans déborder
+   sur la colonne suivante (Rank Math, etc.). */
 body.mc-admin .wp-list-table.table-view-list.fixed{table-layout:auto;}
-body.mc-admin .wp-list-table .column-mc_actions{width:1%;white-space:nowrap;text-align:right;overflow:visible;}
-body.mc-admin .mc-actions{display:inline-flex;width:max-content;justify-content:flex-end;gap:2px;vertical-align:middle;}
+body.mc-admin .wp-list-table th.column-mc_actions,
+body.mc-admin .wp-list-table td.column-mc_actions{width:1%;white-space:nowrap;text-align:right;vertical-align:middle;}
+body.mc-admin .mc-actions{display:inline-flex;justify-content:flex-end;gap:2px;vertical-align:middle;}
 body.mc-admin .mc-act{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;color:#9CA3AF;text-decoration:none;cursor:pointer;transition:background .15s,color .15s;}
 body.mc-admin .mc-act .dashicons,
 body.mc-admin .mc-act .mc-act-svg{font-size:18px;width:18px;height:18px;}

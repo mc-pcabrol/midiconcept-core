@@ -3,7 +3,7 @@
  * Plugin Name:       MidiConcept Core
  * Plugin URI:        https://www.midiconcept.fr
  * Description:       Boîte à outils MidiConcept pour les sites clients : admin client, colonnes, duplication et médias. Mises à jour depuis GitHub.
- * Version:           1.4.4
+ * Version:           1.4.5
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Midiconcept
@@ -14,7 +14,7 @@
 
 defined('ABSPATH') || exit;
 
-define('MC_CORE_VERSION', '1.4.4');
+define('MC_CORE_VERSION', '1.4.5');
 define('MC_CORE_FILE', __FILE__);
 define('MC_CORE_DIR', plugin_dir_path(__FILE__));
 
