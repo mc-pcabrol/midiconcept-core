@@ -1200,8 +1200,12 @@ body.mc-admin:not(.block-editor-page) .plugins .row-actions a:hover{color:var(--
 body.mc-admin:not(.block-editor-page) .plugins .row-actions .delete a{color:#B42318;}
 
 /* ── Colonne Actions à icônes ─────────────────────────── */
-body.mc-admin .wp-list-table .column-mc_actions{width:1%;white-space:nowrap;text-align:right;}
-body.mc-admin .mc-actions{display:inline-flex;justify-content:flex-end;gap:2px;vertical-align:middle;}
+/* Le tableau WordPress est en largeur fixe : un width:1% écrase la colonne
+   (« Acti », une seule icône visible). En largeur automatique, 1% + nowrap
+   la cale sur les icônes, et le titre prend le reste. */
+body.mc-admin .wp-list-table.table-view-list.fixed{table-layout:auto;}
+body.mc-admin .wp-list-table .column-mc_actions{width:1%;white-space:nowrap;text-align:right;overflow:visible;}
+body.mc-admin .mc-actions{display:inline-flex;width:max-content;justify-content:flex-end;gap:2px;vertical-align:middle;}
 body.mc-admin .mc-act{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;color:#9CA3AF;text-decoration:none;cursor:pointer;transition:background .15s,color .15s;}
 body.mc-admin .mc-act .dashicons,
 body.mc-admin .mc-act .mc-act-svg{font-size:18px;width:18px;height:18px;}
