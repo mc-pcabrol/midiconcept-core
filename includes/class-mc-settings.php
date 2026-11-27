@@ -341,12 +341,22 @@ final class MC_Settings
 
                     <section class="mc-card">
                         <h2>CSS additionnel</h2>
-                        <p class="mc-lead">Collé sur toutes les pages de l’admin, après les feuilles des extensions. Il s’applique à tout le monde, y compris les administrateurs.</p>
+                        <p class="mc-lead">Collé sur toutes les pages de l’admin, après les feuilles des extensions. Il s’applique à tout le monde, y compris les administrateurs. La surcouche est commune ; le champ en dessous ne concerne que ce site et passe en dernier.</p>
                         <table class="form-table" role="presentation">
                             <tr>
-                                <th scope="row"><label for="mc-admin-css">Règles</label></th>
+                                <th scope="row">Surcouche</th>
                                 <td>
-                                    <textarea class="large-text code" rows="10" id="mc-admin-css" name="<?php echo esc_attr($opt); ?>[admin_css]" placeholder=".wp-list-table td .rank-math-column-display {&#10;    display: inline-flex;&#10;}"><?php echo esc_textarea((string) $o['admin_css']); ?></textarea>
+                                    <label class="mc-choice">
+                                        <input type="checkbox" name="<?php echo esc_attr($opt); ?>[overlay]" value="1" <?php checked($o['overlay']); ?>>
+                                        Charger la surcouche par défaut MidiConcept
+                                    </label>
+                                    <p class="description">Fichier <code>assets/admin-overlay.css</code> du plugin. Le modifier dans le dépôt, puis publier une version, met à jour tous les sites.</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row"><label for="mc-admin-css">Ce site</label></th>
+                                <td>
+                                    <textarea class="large-text code" rows="10" id="mc-admin-css" name="<?php echo esc_attr($opt); ?>[admin_css]" placeholder="/* règles propres à ce site */"><?php echo esc_textarea((string) $o['admin_css']); ?></textarea>
                                     <p class="description">CSS seul, sans balise <code>&lt;style&gt;</code>.</p>
                                 </td>
                             </tr>
@@ -889,6 +899,7 @@ JS
             'duplicate'      => empty($input['duplicate']) ? 0 : 1,
             'missed_schedule'=> empty($input['missed_schedule']) ? 0 : 1,
             'media_replace'  => empty($input['media_replace']) ? 0 : 1,
+            'overlay'        => empty($input['overlay']) ? 0 : 1,
             'admin_css'      => self::sanitize_css((string) ($input['admin_css'] ?? '')),
             'columns'        => self::sanitize_columns($input['columns'] ?? []),
             'columns_hide'   => self::sanitize_hide((string) ($input['columns_hide_text'] ?? '')),
@@ -1120,6 +1131,7 @@ JS
             'duplicate'       => 1,
             'missed_schedule' => 1,
             'media_replace'   => 1,
+            'overlay'         => 1,
             'admin_css'       => '',
             'columns'       => [],
             'columns_hide'  => [],
@@ -1128,11 +1140,32 @@ JS
 
     public static function print_admin_css(): void
     {
-        $css = self::get()['admin_css'] ?? '';
-        if (!is_string($css) || trim($css) === '') {
+        $o = self::get();
+        $parts = [];
+        if (!empty($o['overlay'])) {
+            $overlay = self::overlay_css();
+            if ($overlay !== '') {
+                $parts[] = $overlay;
+            }
+        }
+        $custom = $o['admin_css'] ?? '';
+        if (is_string($custom) && trim($custom) !== '') {
+            $parts[] = $custom;
+        }
+        if (!$parts) {
             return;
         }
-        echo '<style id="mc-admin-custom">' . $css . "</style>\n"; // phpcs:ignore -- CSS déjà filtré
+        echo '<style id="mc-admin-custom">' . implode("\n", $parts) . "</style>\n"; // phpcs:ignore -- CSS déjà filtré
+    }
+
+    private static function overlay_css(): string
+    {
+        $file = MC_CORE_DIR . 'assets/admin-overlay.css';
+        if (!is_readable($file)) {
+            return '';
+        }
+        $css = file_get_contents($file);
+        return is_string($css) ? self::sanitize_css($css) : '';
     }
 
     private static function sanitize_css(string $css): string

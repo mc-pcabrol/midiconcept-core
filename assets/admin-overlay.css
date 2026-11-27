@@ -1,0 +1,10 @@
+/*
+ * Surcouche admin MidiConcept.
+ * Ce fichier part avec le plugin : une mise à jour l’apporte sur tous les sites
+ * dont la case « Charger la surcouche par défaut » est cochée.
+ * Le CSS propre à un site (Réglages → MidiConcept → Apparence) passe après.
+ */
+
+.wp-list-table td .rank-math-column-display {
+    display: inline-flex;
+}
