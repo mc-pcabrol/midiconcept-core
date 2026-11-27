@@ -55,7 +55,7 @@
  *     'adminbar_remove' => ['wp-logo', 'comments', 'new-content', 'updates'],
  *     'hide_notices'    => true,   // regroupe les notices de plugins dans la barre du haut
  *     'status_badges'   => true,   // colonne « État » (Publié, Brouillon, Programmé…), séparée de la date
- *     'row_icons'       => true,   // colonne « Actions » à icônes (voir, modifier, modif. rapide, corbeille)
+ *     'row_icons'       => true,   // colonne « Actions » : icônes natives et liens d'extensions (Elementor, IndexNow…)
  * ]);
  *
  * Rappel : masquer un menu ne bloque pas l'accès à l'URL. Pour verrouiller,
@@ -76,6 +76,9 @@ final class MC_Client_Admin
 
     private static bool $notices_closed = false;
 
+    /** @var array<int, string> Actions d'extensions déjà transformées en icônes, par contenu. */
+    private static array $extra_actions = [];
+
     /* ───────────────────────────── Initialisation ─────────────────────────── */
 
     public static function is_ready(): bool
@@ -93,6 +96,10 @@ final class MC_Client_Admin
         add_filter('login_headerurl', static fn() => home_url('/'));
         add_filter('login_headertext', static fn() => self::$cfg['brand']['name'] ?: get_bloginfo('name'));
         add_filter('admin_footer_text', [__CLASS__, 'footer_text']);
+
+        // « Créer / Modifier avec YOOtheme » : retiré pour tout le monde.
+        add_filter('post_row_actions', [__CLASS__, 'hide_yootheme_actions'], PHP_INT_MAX, 2);
+        add_filter('page_row_actions', [__CLASS__, 'hide_yootheme_actions'], PHP_INT_MAX, 2);
 
         // Éléments ciblés par rôle : on attend que l'utilisateur soit connu.
         add_action('admin_init', [__CLASS__, 'handle_view_as'], 1);
@@ -220,6 +227,8 @@ final class MC_Client_Admin
             add_filter('manage_pages_columns', $add, 999);
             add_action('manage_posts_custom_column', [__CLASS__, 'actions_cell'], 10, 2);
             add_action('manage_pages_custom_column', [__CLASS__, 'actions_cell'], 10, 2);
+            add_filter('post_row_actions', [__CLASS__, 'collect_row_actions'], PHP_INT_MAX, 2);
+            add_filter('page_row_actions', [__CLASS__, 'collect_row_actions'], PHP_INT_MAX, 2);
             add_filter('admin_body_class', static fn($c) => $c . ' mc-row-icons ');
         }
 
@@ -616,8 +625,47 @@ HTML;
     }
 
     /**
+     * Reprend les liens d'extensions (Elementor, IndexNow, duplication…) et retire YOOtheme.
+     * Les liens promus gardent leur adresse : ils réapparaissent en texte sur mobile.
+     *
+     * @param mixed $post
+     */
+    public static function collect_row_actions(array $actions, $post): array
+    {
+        if (!$post instanceof WP_Post || $post->post_status === 'trash') {
+            return $actions;
+        }
+
+        $native = ['edit', 'inline hide-if-no-js', 'trash', 'view', 'preview', 'delete', 'untrash'];
+        $extra  = [];
+        $kept   = [];
+
+        foreach ($actions as $key => $html) {
+            $html = (string) $html;
+            $key  = (string) $key;
+            if (self::is_yootheme_action($key, $html)) {
+                continue;
+            }
+            if (in_array($key, $native, true)) {
+                $kept[$key] = $html;
+                continue;
+            }
+            $icon = self::iconify_row_action($key, $html);
+            if ($icon === '') {
+                $kept[$key] = $html;
+                continue;
+            }
+            $extra[$key] = $icon;
+            $kept[$key]  = self::mark_promoted_action($html);
+        }
+
+        self::$extra_actions[$post->ID] = $extra;
+        return $kept;
+    }
+
+    /**
      * Colonne « Actions » : icônes grisées. Les actions natives équivalentes sont masquées
-     * sous le titre (CSS) ; celles ajoutées par d'autres plugins y restent.
+     * sous le titre (CSS), de même que les liens d'extensions repris ici.
      * Dans la corbeille, on laisse les actions natives (Restaurer / Supprimer définitivement).
      */
     public static function actions_cell(string $column, int $post_id): void
@@ -673,6 +721,10 @@ HTML;
             }
         }
 
+        foreach (self::$extra_actions[$post_id] ?? [] as $html) {
+            $out .= $html;
+        }
+
         // Corbeille
         if (current_user_can('delete_post', $post_id) && EMPTY_TRASH_DAYS) {
             $out .= $btn('dashicons-trash', 'Mettre à la corbeille', sprintf(
@@ -682,7 +734,164 @@ HTML;
             ));
         }
 
-        echo '<div class="mc-actions">' . $out . '</div>'; // phpcs:ignore -- échappé ci-dessus
+        echo '<div class="mc-actions">' . $out . '</div>'; // phpcs:ignore -- échappé dans iconify ou ci-dessus
+    }
+
+    /** @param mixed $post */
+    public static function hide_yootheme_actions(array $actions, $post): array
+    {
+        foreach ($actions as $key => $html) {
+            if (self::is_yootheme_action((string) $key, (string) $html)) {
+                unset($actions[$key]);
+            }
+        }
+        return $actions;
+    }
+
+    private static function is_yootheme_action(string $key, string $html): bool
+    {
+        $blob = strtolower($key . ' ' . $html);
+        return strpos($blob, 'yootheme') !== false;
+    }
+
+    /** @return array<int, array{0: string, 1: string[]}> */
+    private static function row_action_icons(): array
+    {
+        return [
+            ['svg:bolt', [
+                'indexnow', 'instant indexing', 'index now', 'rank_math_instant',
+            ]],
+            ['svg:copy', [
+                'mc_duplicate', 'duplicate', 'dupliquer', 'clone', 'cloner', 'copier', 'edit_as_new',
+                'rewrite', 'réécrire', 'nouveau brouillon', 'new draft',
+            ]],
+            ['dashicons-layout', [
+                'elementor', 'bricks', 'breakdance', 'oxygen', 'brizy', 'beaver', 'fl-builder',
+                'wpbakery', 'js_composer', 'vc_edit', 'seedprod', 'cornerstone', 'zionbuilder',
+                'thrive', 'et_pb', 'et-fb', 'divi builder', 'the divi', 'avada', 'fusion-builder',
+                'uxbuilder', 'flatsome', 'live composer',
+            ]],
+            ['dashicons-search', [
+                'rank-math', 'rank_math', 'yoast', 'wpseo', 'seopress', 'aioseo', 'slim-seo', 'slim_seo',
+                'the_seo_framework', 'tsf',
+            ]],
+            ['dashicons-update', [
+                'wp-rocket', 'wpr-purge', 'rocket_purge', 'litespeed', 'w3tc', 'purge_cache', 'purge-cache',
+                'supercache', 'flying-press', 'nitropack', 'vider le cache', 'clear cache', 'purge this',
+            ]],
+            ['dashicons-translation', [
+                'wpml', 'polylang', 'pll_', 'translate', 'traduire', 'trp_',
+            ]],
+            ['dashicons-download', ['export', 'télécharger', 'download']],
+            ['dashicons-randomize', ['redirection', 'redirect']],
+            ['dashicons-admin-comments', ['comment']],
+            ['dashicons-external', ['nouvel onglet', 'new tab', 'frontend', 'front-end']],
+            ['dashicons-visibility', ['preview', 'prévisual', 'voir', 'view']],
+        ];
+    }
+
+    private static function icon_for_action(string $key, string $html): string
+    {
+        $blob = strtolower($key . ' ' . html_entity_decode(wp_strip_all_tags($html), ENT_QUOTES, 'UTF-8') . ' ' . $html);
+        foreach (self::row_action_icons() as $rule) {
+            foreach ($rule[1] as $needle) {
+                if ($needle !== '' && strpos($blob, $needle) !== false) {
+                    return $rule[0];
+                }
+            }
+        }
+        return 'dashicons-admin-generic';
+    }
+
+    private static function action_label(string $key, string $html): string
+    {
+        $label = trim(wp_strip_all_tags($html));
+        if ($label === '' && preg_match('/\balt=(["\'])(.*?)\1/i', $html, $alt)) {
+            $label = html_entity_decode($alt[2], ENT_QUOTES, 'UTF-8');
+        }
+        if ($label === '' && preg_match('/\btitle=(["\'])(.*?)\1/i', $html, $title)) {
+            $label = html_entity_decode($title[2], ENT_QUOTES, 'UTF-8');
+        }
+        return $label !== '' ? $label : $key;
+    }
+
+    private static function action_glyph(string $icon, string $label): string
+    {
+        if ($icon === 'svg:bolt') {
+            $glyph = '<svg class="mc-act-svg" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M11.1 1.2 4.2 11h5.2l-1.5 7.8 7.6-10.6h-5.2l.8-7z"/></svg>';
+        } elseif ($icon === 'svg:copy') {
+            $glyph = '<svg class="mc-act-svg" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M7 2.2h8.1c.7 0 1.2.6 1.2 1.2v8.1h-1.7V3.9H7V2.2zM4.2 5h8.2c.7 0 1.2.6 1.2 1.2v8.4c0 .7-.5 1.2-1.2 1.2H4.2c-.7 0-1.2-.5-1.2-1.2V6.2C3 5.6 3.5 5 4.2 5zm.3 1.7v7.6h7.6V6.7H4.5z"/></svg>';
+        } else {
+            $glyph = '<span class="dashicons ' . esc_attr($icon) . '" aria-hidden="true"></span>';
+        }
+        return $glyph . '<span class="screen-reader-text">' . esc_html($label) . '</span>';
+    }
+
+    /** Garde un drapeau ou une image fournie par l'extension, au format de la colonne. */
+    private static function action_image_inner(string $html, string $label): string
+    {
+        if (!preg_match('/<img\b[^>]*>/i', $html, $m)) {
+            return self::action_glyph('dashicons-admin-generic', $label);
+        }
+        return '<span class="mc-act-img">' . $m[0] . '</span><span class="screen-reader-text">' . esc_html($label) . '</span>';
+    }
+
+    /**
+     * @param callable(string, string, string): string $rewrite attrs, label, inner
+     */
+    private static function rewrite_action_tag(string $html, callable $rewrite): string
+    {
+        $label = self::action_label('', $html);
+        $out = preg_replace_callback(
+            '/<(a|button)\b([^>]*)>.*?<\/\1>/is',
+            static function (array $m) use ($rewrite, $label): string {
+                return $rewrite($m[1], $m[2], $label);
+            },
+            $html,
+            1,
+            $count
+        );
+        return ($count && is_string($out)) ? $out : '';
+    }
+
+    private static function with_action_class(string $attrs, string $class, string $label): string
+    {
+        if (!preg_match('/\btitle=/i', $attrs)) {
+            $attrs .= ' title="' . esc_attr($label) . '"';
+        }
+        if (preg_match('/\bclass=(["\'])(.*?)\1/i', $attrs)) {
+            return (string) preg_replace('/\bclass=(["\'])(.*?)\1/i', 'class=$1' . $class . ' $2$1', $attrs, 1);
+        }
+        return $attrs . ' class="' . esc_attr($class) . '"';
+    }
+
+    /** Lien d'origine, réduit à une icône, pour la colonne. */
+    private static function iconify_row_action(string $key, string $html): string
+    {
+        $label = self::action_label($key, $html);
+        $plain = trim(wp_strip_all_tags($html));
+        $keep_img = (bool) preg_match('/<img\b/i', $html) && strlen($plain) < 12;
+        $inner = $keep_img
+            ? self::action_image_inner($html, $label)
+            : self::action_glyph(self::icon_for_action($key, $html), $label);
+
+        return self::rewrite_action_tag($html, static function (string $tag, string $attrs) use ($inner, $label): string {
+            $attrs = self::with_action_class($attrs, 'mc-act', $label);
+            return '<' . $tag . $attrs . '>' . $inner . '</' . $tag . '>';
+        });
+    }
+
+    /** Marque le lien sous le titre pour le masquer sur grand écran, sans le retirer du mobile. */
+    private static function mark_promoted_action(string $html): string
+    {
+        $marked = self::rewrite_action_tag($html, static function (string $tag, string $attrs, string $label) use ($html): string {
+            $attrs = self::with_action_class($attrs, 'mc-row-promoted', $label);
+            if (!preg_match('/<(a|button)\b[^>]*>(.*?)<\/\1>/is', $html, $inner)) {
+                return '<' . $tag . $attrs . '></' . $tag . '>';
+            }
+            return '<' . $tag . $attrs . '>' . $inner[2] . '</' . $tag . '>';
+        });
+        return $marked !== '' ? $marked : $html;
     }
 
     /** Après le titre : on retire les statuts déjà affichés en pastille (« — Brouillon »…). */
@@ -991,10 +1200,13 @@ body.mc-admin:not(.block-editor-page) .plugins .row-actions a:hover{color:var(--
 body.mc-admin:not(.block-editor-page) .plugins .row-actions .delete a{color:#B42318;}
 
 /* ── Colonne Actions à icônes ─────────────────────────── */
-body.mc-admin .wp-list-table .column-mc_actions{width:150px;text-align:right;}
-body.mc-admin .mc-actions{display:flex;justify-content:flex-end;gap:2px;}
+body.mc-admin .wp-list-table .column-mc_actions{width:1%;white-space:nowrap;text-align:right;}
+body.mc-admin .mc-actions{display:inline-flex;justify-content:flex-end;gap:2px;vertical-align:middle;}
 body.mc-admin .mc-act{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;color:#9CA3AF;text-decoration:none;cursor:pointer;transition:background .15s,color .15s;}
-body.mc-admin .mc-act .dashicons{font-size:18px;width:18px;height:18px;}
+body.mc-admin .mc-act .dashicons,
+body.mc-admin .mc-act .mc-act-svg{font-size:18px;width:18px;height:18px;}
+body.mc-admin .mc-act-img{display:inline-flex;width:18px;height:18px;}
+body.mc-admin .mc-act-img img{width:18px;height:18px;object-fit:contain;}
 body.mc-admin .mc-act:hover,body.mc-admin .mc-act:focus{background:var(--mc-primary-soft);color:var(--mc-primary);box-shadow:none;outline:none;}
 body.mc-admin .mc-act:focus-visible{box-shadow:0 0 0 2px var(--mc-focus);}
 body.mc-admin .mc-act--danger:hover,body.mc-admin .mc-act--danger:focus{background:#FEE4E2;color:#B42318;}
@@ -1005,11 +1217,15 @@ body.mc-admin .mc-act--quick:hover,
 body.mc-admin .mc-act--quick:focus{color:#111827;background:transparent;}
 body.mc-admin .mc-act--quick:hover,body.mc-admin .mc-act--quick:focus{background:#F3F4F6;}
 @media screen and (min-width: 783px){
+  /* Les séparateurs « | » ne restent pas seuls une fois les liens repris en icônes. */
+  body.mc-row-icons .wp-list-table tr:not(.status-trash) .row-actions{font-size:0;}
+  body.mc-row-icons .wp-list-table tr:not(.status-trash) .row-actions > span{font-size:13px;}
   /* Les actions natives équivalentes disparaissent sous le titre (hors corbeille) */
   body.mc-row-icons .wp-list-table tr:not(.status-trash) .row-actions .edit,
   body.mc-row-icons .wp-list-table tr:not(.status-trash) .row-actions .inline,
   body.mc-row-icons .wp-list-table tr:not(.status-trash) .row-actions .trash,
-  body.mc-row-icons .wp-list-table tr:not(.status-trash) .row-actions .view{display:none;}
+  body.mc-row-icons .wp-list-table tr:not(.status-trash) .row-actions .view,
+  body.mc-row-icons .wp-list-table tr:not(.status-trash) .row-actions span:has(> .mc-row-promoted){display:none;}
 }
 @media screen and (max-width: 782px){
   body.mc-admin .wp-list-table .column-mc_actions{display:none !important;}

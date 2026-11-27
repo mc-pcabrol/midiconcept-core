@@ -486,8 +486,9 @@ final class MC_Settings
                                 <td>
                                     <label class="mc-choice">
                                         <input type="checkbox" name="<?php echo esc_attr($opt); ?>[row_icons]" value="1" <?php checked($o['row_icons']); ?>>
-                                        Colonne d’icônes : voir, modifier, modification rapide, corbeille
+                                        Colonne d’icônes à la place des liens sous le titre
                                     </label>
+                                    <p class="description">Voir, modifier, modification rapide, corbeille, puis les liens des extensions : Elementor, IndexNow (éclair), duplication… « Créer avec YOOtheme » et « Modifier avec YOOtheme » sont retirés.</p>
                                 </td>
                             </tr>
                             <tr>
